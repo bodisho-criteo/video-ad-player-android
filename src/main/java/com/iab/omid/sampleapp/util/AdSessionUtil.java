@@ -31,12 +31,12 @@ import java.util.List;
 public final class AdSessionUtil {
 
     @NonNull
-	public static AdSession getNativeAdSession(Context context, String customReferenceData, CreativeType creativeType) throws MalformedURLException {
+	public static AdSession getNativeAdSession(Context context) throws MalformedURLException {
 		Omid.activate(context.getApplicationContext());
 
 
 		AdSessionConfiguration adSessionConfiguration =
-			AdSessionConfiguration.createAdSessionConfiguration(creativeType,
+			AdSessionConfiguration.createAdSessionConfiguration(CreativeType.VIDEO,
 				ImpressionType.VIEWABLE,
 				Owner.NATIVE,
 				Owner.NATIVE, false);
@@ -44,7 +44,7 @@ public final class AdSessionUtil {
 		Partner partner = Partner.createPartner(BuildConfig.PARTNER_NAME, BuildConfig.VERSION_NAME);
 		final String omidJs = getOmidJs(context);
 		List<VerificationScriptResource> verificationScripts = AdSessionUtil.getVerificationScriptResources();
-		AdSessionContext adSessionContext = AdSessionContext.createNativeAdSessionContext(partner, omidJs, verificationScripts, null, customReferenceData);
+		AdSessionContext adSessionContext = AdSessionContext.createNativeAdSessionContext(partner, omidJs, verificationScripts, null, null);
 		AdSession adSession = AdSession.createAdSession(adSessionConfiguration, adSessionContext);
 		return adSession;
 	}

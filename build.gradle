@@ -33,7 +33,7 @@ android {
         // This override URL will only change URLs seen in Charles proxy for Html ads
         buildConfigField("String", "VALIDATION_SCRIPT_URL_OVERRIDE", "\"complianceomsdk.iabtechlab.com\"")
         buildConfigField("String", "VERIFICATION_URL", "\"https://static.criteo.com/banners/js/omidjs/dev/omid-validation-verification-script-for-retail-media.js\"")
-        buildConfigField("String", "VERIFICATION_PARAMETERS", "\"{\\\"beacons\\\":{\\\"omidTrackView\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/omidTrackView\\\",\\\"start\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/start\\\",\\\"firstQuartile\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/firstQuartile\\\",\\\"geometryChange\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/geometryChange\\\",\\\"sessionStart\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/sessionStart\\\",\\\"impression\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/impression\\\",\\\"midpoint\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/midpoint\\\",\\\"thirdQuartile\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/thirdQuartile\\\",\\\"complete\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/complete\\\",\\\"twoSecondsFiftyPercentView\\\":\\\"https://httpdump.app/dumps/8dd33a2f-812a-43ff-af5c-be61c00a81b2/beacons/omid/twoSecondsFiftyPercentView\\\"}}\"")
+        buildConfigField("String", "VERIFICATION_PARAMETERS", "\"{\\\"beacons\\\":{\\\"omidTrackView\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/omidTrackView\\\",\\\"start\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/start\\\",\\\"firstQuartile\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/firstQuartile\\\",\\\"geometryChange\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/geometryChange\\\",\\\"sessionStart\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/sessionStart\\\",\\\"impression\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/impression\\\",\\\"midpoint\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/midpoint\\\",\\\"thirdQuartile\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/thirdQuartile\\\",\\\"complete\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/complete\\\",\\\"twoSecondsFiftyPercentView\\\":\\\"https://en0m1v0om6m97r.x.pipedream.net/beacons/omid/twoSecondsFiftyPercentView\\\"}}\"")
         buildConfigField("String", "HTML_DISPLAY_AD", "\"https://omsdk-demo-files.s3.us-west-2.amazonaws.com/creatives/html_display_creative.html\"")
         buildConfigField("String", "HTML_VIDEO_AD", "\"https://omsdk-demo-files.s3.us-west-2.amazonaws.com/creatives/html_video_creative.html\"")
         multiDexEnabled true
@@ -92,7 +92,6 @@ dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation 'androidx.media3:media3-ui:1.3.1'
     implementation 'androidx.media3:media3-exoplayer:1.3.1'
-    implementation 'androidx.media3:media3-exoplayer-ima:1.3.1'
 }
 
 tasks.withType(JavaCompile) {

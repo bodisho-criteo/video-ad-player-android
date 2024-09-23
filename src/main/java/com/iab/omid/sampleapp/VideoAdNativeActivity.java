@@ -1,34 +1,48 @@
 package com.iab.omid.sampleapp;
 
 import android.app.Activity;
-import android.content.Context;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
-import androidx.annotation.NonNull;
+
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
-import androidx.media3.datasource.DataSource;
-import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
-import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.ui.PlayerView;
 
 
 import com.iab.omid.library.criteo.adsession.AdEvents;
 import com.iab.omid.library.criteo.adsession.AdSession;
-import com.iab.omid.library.criteo.adsession.CreativeType;
 import com.iab.omid.library.criteo.adsession.media.MediaEvents;
 import com.iab.omid.library.criteo.adsession.media.Position;
 import com.iab.omid.library.criteo.adsession.media.VastProperties;
 import com.iab.omid.sampleapp.util.AdSessionUtil;
-import com.iab.omid.sampleapp.util.Util;
+import com.iab.omid.sampleapp.util.VastParser;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.NodeList;
+
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.net.MalformedURLException;
+
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathExpressionException;
+import javax.xml.xpath.XPathFactory;
+
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 /**
  * A fragment representing a single ad detail screen.
@@ -39,9 +53,10 @@ import java.net.MalformedURLException;
  */
 public class VideoAdNativeActivity extends Activity implements Player.Listener, View.OnClickListener {
 
-	private static final String CUSTOM_REFERENCE_DATA = "{ \"birthday\":-310957844000, \"user\":\"me\" }";
-	private static final String VIDEO_URL = "asset:///video_ad_asset.mp4";
-	private static final int PLAYER_VOLUME = 1;
+	private static final String VAST_URL = "http://10.0.2.2:8000/vast_omid.xml";
+
+	private static final int PLAYER_UNMUTE = 1;
+	private static final int PLAYER_MUTE = 0;
 
 	private AdSession adSession;
 	private MediaEvents mediaEvents;
@@ -56,8 +71,12 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 
 	private PlayerView playerView;
 	private ExoPlayer player;
-//	private DefaultTrackSelector trackSelector;
 	private TextView muteTextView;
+
+	private static final XPathFactory xPathFactory = XPathFactory.newInstance();
+
+	public Document doca;
+	public VastParser vastFetcher;
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -65,18 +84,15 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 		setContentView(R.layout.video_ad_native_detail);
 
 		playerView = findViewById(R.id.videoView);
-		TextView userInteractionTextView = findViewById(R.id.userIntercationTextView);
 		muteTextView = findViewById(R.id.muteTextView);
-
-		initializePlayer2();
 
 		playerView.requestFocus();
 
-		userInteractionTextView.setOnClickListener(this);
 		muteTextView.setOnClickListener(this);
+		playerView.setOnClickListener(this);
 
 		try {
-			adSession = AdSessionUtil.getNativeAdSession(this, CUSTOM_REFERENCE_DATA, CreativeType.VIDEO);
+			adSession = AdSessionUtil.getNativeAdSession(this);
 		} catch (MalformedURLException e) {
 			throw new UnsupportedOperationException(e);
 		}
@@ -84,100 +100,95 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 		adEvents = AdEvents.createAdEvents(adSession);
 		adSession.registerAdView(playerView);
 		adSession.start();
+
+		vastFetcher = new VastParser();
+		vastFetcher.fetchAndParseVast(VAST_URL, new VastParser.VASTFetchCallback() {
+			@Override
+			public void onSuccess(Document doc) {
+				// Process the document and update the UI
+				try {
+					doca = doc;
+					NodeList mediaFiles = (NodeList) xPathFactory.newXPath().compile("//MediaFile").evaluate(doc, XPathConstants.NODESET);
+					initializePlayer(mediaFiles.item(0).getTextContent());
+				} catch (XPathExpressionException e) {
+					throw new RuntimeException(e);
+				}
+			}
+
+			@Override
+			public void onFailure(Exception e) {
+				// Handle the error
+				Log.e("MainActivity", "Error fetching VAST XML", e);
+			}
+		});
 	}
 
-	private void initializePlayer2() {
-		// Set up the factory for media sources, passing the ads loader and ad view providers.
-//		DataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(this);
+	private boolean isVideoViewAtLeast50Visible(View videoView) {
+		// Get the visible rectangle of the view
+		Rect visibleRect = new Rect();
+		boolean isVisible = videoView.getGlobalVisibleRect(visibleRect);
 
-//		MediaSource.Factory mediaSourceFactory =
-//				new DefaultMediaSourceFactory(dataSourceFactory)
-//						.setLocalAdInsertionComponents(unusedAdTagUri -> adsLoader, playerView);
+		if (!isVisible) {
+			return false; // Not visible at all
+		}
 
+		// Get total area of the video view
+		int totalArea = videoView.getWidth() * videoView.getHeight();
+		if (totalArea == 0) {
+			return false; // If the view has no size yet
+		}
+
+		// Get the visible area
+		int visibleArea = visibleRect.width() * visibleRect.height();
+
+		// Check if visible area is at least 50% of the total area
+		return (visibleArea >= totalArea / 2);
+	}
+
+	private void emitBeacon(String url) {
+		Request request = new Request.Builder().url(url).build();
+		client.newCall(request).enqueue(emptyCallback);
+	}
+
+	private void initializePlayer(String videoUrl) {
 		// Create an ExoPlayer and set it as the player for content and ads.
 		player = new ExoPlayer.Builder(this)
-//				.setMediaSourceFactory(mediaSourceFactory)
 				.build();
-//		adsLoader.setPlayer(player);
 
-		// Create the MediaItem to play, specifying the content URI and ad tag URI.
-//		Uri contentUri = Uri.parse(getString(R.string.content_url));
-//		Uri adTagUri = Uri.parse(getString(R.string.ad_tag_url));
+		// Create the MediaItem to play
 		MediaItem mediaItem =
 				new MediaItem.Builder()
-						.setUri(Uri.parse(VIDEO_URL))
-//						.setAdsConfiguration(new MediaItem.AdsConfiguration.Builder(Uri.parse(VIDEO_URL)).build())
+						.setUri(Uri.parse(videoUrl))
 						.build();
-
-		// Prepare the content and ad to be played with the SimpleExoPlayer.
 		player.setMediaItem(mediaItem);
+		// Add listener on player events
 		player.addListener(this);
-		player.setVolume(PLAYER_VOLUME);
+
+		player.setVolume(PLAYER_UNMUTE);
 		playerView.setPlayer(player);
+
+		// Disable default player controls (default controls allow seeking)
+		playerView.setUseController(false);
 		player.setPlayWhenReady(true);
 		player.prepare();
-	}
 
+		player.addListener(new Player.Listener() {
+			@Override
+			public void onPlayerError(PlaybackException error) {
+				Log.e("ExoPlayer", "Error occurred: " + error.getMessage());
+			}
+		});
 
-//	private void initializePlayer(@NonNull Context context) {
-//
-//// 1, Setup selector
-//		DefaultBandwidthMeter bandwidthMeter = new DefaultBandwidthMeter();
-//		TrackSelection.Factory mediaTrackSelectionFactory = new AdaptiveTrackSelection.Factory(bandwidthMeter);
-//		trackSelector = new DefaultTrackSelector(mediaTrackSelectionFactory);
-//
-//// 2. Create the player
-//		player = ExoPlayerFactory.newSimpleInstance(context, trackSelector);
-//		player.addListener(this);
-//
-//		player.setVolume(PLAYER_VOLUME);
-//
-//		playerView.setPlayer(player);
-//		player.setPlayWhenReady(true);
-//
-//		DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(context,
-//				com.google.android.exoplayer2.util.Util.getUserAgent(context, "com.iab.omid"), bandwidthMeter);
-//		ExtractorsFactory extractorsFactory = new DefaultExtractorsFactory();
-//
-//		MediaSource mediaSource = new ExtractorMediaSource(Uri.parse(VIDEO_URL),
-//				dataSourceFactory, extractorsFactory, null, null);
-//
-//// 3. Prepare the player with the source.
-//		player.prepare(mediaSource);
-//	}
-
-	@Override
-	public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
-		switch (playbackState) {
-			case ExoPlayer.STATE_READY:
-				onStateReady();
-				break;
-			case ExoPlayer.STATE_ENDED:
-				onStateEnded();
-				break;
-			case ExoPlayer.STATE_IDLE:
-			case ExoPlayer.STATE_BUFFERING:
-				// TODO?
-				break;
-			default:
-				throw new IllegalStateException("Unknown playbackState: " + playbackState);
-		}
-	}
-
-	private void onStateReady() {
-		if (!loaded) {
-			VastProperties vastProperties = VastProperties.createVastPropertiesForNonSkippableMedia(false, Position.STANDALONE);
-			adEvents.loaded(vastProperties);
-
-			loaded = true;
-		}
-
-		postProgress();
-	}
-
-	private void onStateEnded() {
-		complete = true;
-		mediaEvents.complete();
+		// Monitor visibility
+		playerView.getViewTreeObserver().addOnPreDrawListener(() -> {
+			// Check if at least 50% of the video is visible
+			if (isPlayingWhen50Visible && isVideoViewAtLeast50Visible(playerView)) {
+				playVideo();
+			} else {
+				pauseVideo();
+			}
+			return true;
+		});
 	}
 
 	@Override
@@ -194,50 +205,202 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 		if (player != null) {
 			player.release();
 			player = null;
-//			trackSelector = null;
 		}
+	}
+
+	@Override
+	public void onPlaybackStateChanged(@Player.State int playbackState) {
+		switch (playbackState) {
+			case ExoPlayer.STATE_READY:
+				onStateReady();
+				break;
+			case ExoPlayer.STATE_ENDED:
+				onStateEnded();
+				break;
+			case ExoPlayer.STATE_BUFFERING:
+				onStateBuffering();
+				break;
+			case ExoPlayer.STATE_IDLE:
+				break;
+			default:
+				throw new IllegalStateException("Unknown playbackState: " + playbackState);
+		}
+	}
+
+	private void onStateReady() {
+
+		if (!loaded) {
+			NodeList trackingNodes;
+			try {
+				trackingNodes = (NodeList) xPathFactory.newXPath().compile("//Impression").evaluate(doca, XPathConstants.NODESET);
+			} catch (XPathExpressionException e) {
+				throw new RuntimeException(e);
+			}
+			String adImpression = trackingNodes.item(0).getTextContent();
+			Request request = new Request.Builder().url(adImpression).build();
+			client.newCall(request).enqueue(emptyCallback);
+			loaded = true;
+
+			VastProperties vastProperties = VastProperties.createVastPropertiesForNonSkippableMedia(false, Position.STANDALONE);
+			adEvents.loaded(vastProperties);
+		}
+
+		mediaEvents.bufferFinish();
+
+		postProgress();
+	}
+
+	private void onStateEnded() {
+		if (!complete) {
+
+			NodeList trackingNodes;
+			try {
+				trackingNodes = (NodeList) xPathFactory.newXPath().compile("//Tracking[@event='complete']").evaluate(doca, XPathConstants.NODESET);
+			} catch (XPathExpressionException e) {
+				throw new RuntimeException(e);
+			}
+			String url = trackingNodes.item(0).getTextContent();
+			Request request = new Request.Builder().url(url).build();
+			client.newCall(request).enqueue(emptyCallback);
+
+			// forward event to OMID (related to next section of the document)
+			mediaEvents.complete();
+			complete = true;
+		}
+
+		player.seekTo(0);
+		player.play();
+	}
+
+	private void onStateBuffering() {
+		mediaEvents.bufferStart();
 	}
 
 	@Override
 	public void onClick(View v) {
 		switch (v.getId()) {
-			case R.id.userIntercationTextView:
-				Util.handleUserInteraction(this, mediaEvents);
+			case R.id.videoView:
+				NodeList trackingNodes;
+				try {
+					trackingNodes = (NodeList) xPathFactory.newXPath().compile("//ClickThrough").evaluate(doca, XPathConstants.NODESET);
+				} catch (XPathExpressionException e) {
+					throw new RuntimeException(e);
+				}
+				String clickThroughUrl = trackingNodes.getLength() > 0 ? trackingNodes.item(0).getTextContent() : null;
+				if (clickThroughUrl != null) {
+					clickThroughHandler();
+				} else {
+					handlePlayPause();
+				}
 				break;
 			case R.id.muteTextView:
-				Util.toggleMute(mediaEvents,player,muteTextView);
+				toggleMute();
 				break;
 		}
 	}
 
-	private boolean onProgressIsMediaPlaying = true;
-	private void updatePlayPause() {
-		final boolean playing = player.getPlayWhenReady() && (player.getPlaybackState() == ExoPlayer.STATE_READY);
-		if (playing != this.onProgressIsMediaPlaying) {
-			if (playing) {
-				mediaEvents.resume();
-			} else {
-				mediaEvents.pause();
-			}
-
-			this.onProgressIsMediaPlaying = playing;
+	public void clickThroughHandler() {
+		NodeList trackingNodes;
+		try {
+			trackingNodes = (NodeList) xPathFactory.newXPath().compile("//ClickThrough").evaluate(doca, XPathConstants.NODESET);
+		} catch (XPathExpressionException e) {
+			throw new RuntimeException(e);
 		}
+		String clickThroughUrl = trackingNodes.getLength() > 0 ? trackingNodes.item(0).getTextContent() : null;
+		try {
+			Intent externalIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(clickThroughUrl));
+			this.startActivity(externalIntent);
+		} catch (ActivityNotFoundException e) {
+			e.printStackTrace();
+		}
+	}
+
+	private boolean isPlayingWhen50Visible = true;
+	public void handlePlayPause() {
+		if (isPlayingWhen50Visible) {
+			pauseVideo();
+			NodeList trackingNodes;
+			try {
+				trackingNodes = (NodeList) xPathFactory.newXPath().compile("//Tracking[@event='pause']").evaluate(doca, XPathConstants.NODESET);
+			} catch (XPathExpressionException e) {
+				throw new RuntimeException(e);
+			}
+			Request request = new Request.Builder().url(trackingNodes.item(0).getTextContent()).build();
+			client.newCall(request).enqueue(emptyCallback);
+		} else {
+			playVideo();
+			NodeList trackingNodes;
+			try {
+				trackingNodes = (NodeList) xPathFactory.newXPath().compile("//Tracking[@event='resume']").evaluate(doca, XPathConstants.NODESET);
+			} catch (XPathExpressionException e) {
+				throw new RuntimeException(e);
+			}
+			Request request = new Request.Builder().url(trackingNodes.item(0).getTextContent()).build();
+			client.newCall(request).enqueue(emptyCallback);
+		}
+		isPlayingWhen50Visible = !isPlayingWhen50Visible;
+	}
+
+	private void playVideo() {
+		player.play();
+
+		// forward event to OMID (related to next section of the document)
+		mediaEvents.resume();
+	}
+
+	private void pauseVideo() {
+		player.pause();
+
+		// forward event to OMID (related to next section of the document)
+		mediaEvents.pause();
+	}
+
+	public void toggleMute() {
+		float currentVolume = player.getVolume();
+		float targetVolume;
+		if (currentVolume == PLAYER_MUTE) {
+			targetVolume = PLAYER_UNMUTE;
+			muteTextView.setText("Mute");
+
+			NodeList trackingNodes;
+			try {
+				trackingNodes = (NodeList) xPathFactory.newXPath().compile("//Tracking[@event='unmute']").evaluate(doca, XPathConstants.NODESET);
+			} catch (XPathExpressionException e) {
+				throw new RuntimeException(e);
+			}
+			Request request = new Request.Builder().url(trackingNodes.item(0).getTextContent()).build();
+			client.newCall(request).enqueue(emptyCallback);
+		} else {
+			targetVolume = PLAYER_MUTE;
+			muteTextView.setText("Unmute");
+
+			NodeList trackingNodes;
+			try {
+				trackingNodes = (NodeList) xPathFactory.newXPath().compile("//Tracking[@event='mute']").evaluate(doca, XPathConstants.NODESET);
+			} catch (XPathExpressionException e) {
+				throw new RuntimeException(e);
+			}
+			Request request = new Request.Builder().url(trackingNodes.item(0).getTextContent()).build();
+			client.newCall(request).enqueue(emptyCallback);
+		}
+		player.setVolume(targetVolume);
+		// forward event to OMID (related to next section of the document)
+		mediaEvents.volumeChange(targetVolume);
 	}
 
 	private static class ProgressRunnable implements Runnable {
-		private final WeakReference<VideoAdNativeActivity> videoAdNativeFragmentWeakReference;
+		private final WeakReference<VideoAdNativeActivity> videoAdNativeActivityWeakReference;
 
 		ProgressRunnable(VideoAdNativeActivity videoAdNativeActivity) {
-			this.videoAdNativeFragmentWeakReference = new WeakReference<>(videoAdNativeActivity);
+			this.videoAdNativeActivityWeakReference = new WeakReference<>(videoAdNativeActivity);
 		}
 
 		@Override
 		public void run() {
-			VideoAdNativeActivity videoAdNativeActivity = videoAdNativeFragmentWeakReference.get();
+			VideoAdNativeActivity videoAdNativeActivity = videoAdNativeActivityWeakReference.get();
 			if (videoAdNativeActivity == null) {
 				return;
 			}
-
 			videoAdNativeActivity.onProgress();
 		}
 	}
@@ -252,7 +415,6 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 		}
 
 		updateQuartile();
-		updatePlayPause();
 		postProgress();
 	}
 
@@ -277,10 +439,32 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 		}
 	}
 
+	private final OkHttpClient client = new OkHttpClient();
+	private final Callback emptyCallback = new Callback() {
+		@Override
+		public void onFailure(Call call, IOException e) { }
+
+		@Override
+		public void onResponse(Call call, Response response) { }
+	};
+
+
 	private void sendQuartile(Quartile quartile) {
 		switch (quartile) {
 			case START:
-				mediaEvents.start(player.getDuration(), PLAYER_VOLUME);
+				NodeList trackingNodes;
+				try {
+					trackingNodes = (NodeList) xPathFactory.newXPath().compile("//Tracking[@event='start']").evaluate(doca, XPathConstants.NODESET);
+				} catch (XPathExpressionException e) {
+					throw new RuntimeException(e);
+				}
+				String url = trackingNodes.item(0).getTextContent();
+				Request request = new Request.Builder().url(url).build();
+
+				client.newCall(request).enqueue(emptyCallback);
+
+
+				mediaEvents.start(player.getDuration(), PLAYER_UNMUTE);
 				adEvents.impressionOccurred();
 				break;
 			case FIRST:
@@ -309,7 +493,7 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 
 	private static Quartile getQuartile(long position, long duration) {
 		final double completionFraction = position / (double) duration;
-		if (lessThan(completionFraction, 0)) {
+		if (lessThan(completionFraction, 0.01)) {
 			return Quartile.UNKNOWN;
 		}
 
