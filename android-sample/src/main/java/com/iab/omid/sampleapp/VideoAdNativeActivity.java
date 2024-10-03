@@ -12,9 +12,12 @@ import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.extractor.text.Subtitle;
 import androidx.media3.ui.PlayerView;
 
 
@@ -32,6 +35,7 @@ import org.w3c.dom.NodeList;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.net.MalformedURLException;
+import java.util.Collections;
 
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathExpressionException;
@@ -184,10 +188,20 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 		player = new ExoPlayer.Builder(this)
 				.build();
 
+		// Set your VTT subtitle URI
+		Uri subtitleUri = Uri.parse("http://10.0.2.2:8000/cerave.vtt");
+
+		// Prepare the subtitle configuration
+		MediaItem.SubtitleConfiguration subtitleConfig = new MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+				.setMimeType(MimeTypes.TEXT_VTT) // The MIME type for WebVTT subtitles
+				.setLanguage("en") // Optional: Specify the language
+				.setSelectionFlags(C.SELECTION_FLAG_DEFAULT) // Optional: Set flags like default
+				.build();
 		// Create the MediaItem to play
 		MediaItem mediaItem =
 				new MediaItem.Builder()
 						.setUri(Uri.parse(videoUrl))
+						.setSubtitleConfigurations(Collections.singletonList(subtitleConfig))
 						.build();
 		player.setMediaItem(mediaItem);
 		// Add listener on player events
