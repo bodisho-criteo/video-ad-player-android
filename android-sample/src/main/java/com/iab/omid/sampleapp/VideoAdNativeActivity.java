@@ -12,11 +12,15 @@ import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 
+import androidx.annotation.OptIn;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackSelectionParameters;
+import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.extractor.text.Subtitle;
 import androidx.media3.ui.PlayerView;
 
@@ -59,7 +63,8 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 	private static final String TAG = "CriteoVideoAd";
 
 	// link to vast, 10.0.2.2 in android emulator points to localhost of the pc
-	private static final String VAST_URL = "https://rm-v.us5.us.criteo.com/v?rm_e=lSe1SIbnZeWUTy74E2i1Q4Ol52cZrIJl_A_P3hD1MdWr-Y8lR7z1yOjHAbSuYSjuO2HAhuyx1s3m6k6PURUmHOaokT2xjWqb8smSkeFkxcegd3--RPH8GvE0EE5YRvP4HH9x8t7bVxvrFq8k5RyPorKc_XyQy3tEzoIBCUxseKdmAbLxcN6wUDBsrqmGmUvyeBzSpaFfe4QWnIzUt8X-R-nao8fl9qUpz7_ZU1CAfw_yQ-nTk-KibXvRWrYIaCf76xztUrrqSfX3qa0njwveATt6o2HZjxMTNPvZLAoyl_Cj8t27wx00uiLSRFAEDD0JqWYaIGJ0ZHJVzUPS5chr1D492PMeTsQZ8JjeLQ_t1835jHuxhCcv7eDMNrxX4d8qAlY-a9jGRDXZ7Mfs69QBRUgQoAoU4ZZ64Pua8sXE36yt7akt2etN0pMCjiOfa1fLt9s1qaL3jnbie7CrFsxfXQLYrZrRefKZnjJLg2IXl85d89m9bH3QyQR03H5-EsGwwE6aFeX8sXzeIiPANx9OehdZ-pNUGbsmIjDKPd9_Ixtd2baAqUk122QCPNvEo8OavJK9N-wpt1W-m3tPZqF2AggIw1rqm5_iGv0BCBI2TkSAulQsUMsD_eTwzH8mRrQstn1QJ8d6FnUISUF27MwaBUzzaF4QAva6MFjdVnHNAmoJvlqyVkpNdC4RKmT3XtWlkOdFkq2xTlC9w6yDFuWwKdcJuOVwKnnZ8zxHO5YXWxL7DTT3R8KcoH51V_U2FkQBgYbmDsSoprbqAAEBIYl7mQ&ev=4";
+	// http://10.0.2.2:8000/vast_omid.xml
+	private static final String VAST_URL = "http://10.0.2.2:8000/vast_omid.xml";
 
 	private static final int PLAYER_UNMUTE = 1;
 	private static final int PLAYER_MUTE = 0;
@@ -185,9 +190,18 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 		}
 	}
 
-	private void initializePlayer(String videoUrl, String ccUrl) {
+	@OptIn(markerClass = UnstableApi.class) private void initializePlayer(String videoUrl, String ccUrl) {
 		// Create an ExoPlayer and set it as the player for content and ads.
+
+		// add embeded subtitles
+		DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+		TrackSelectionParameters parameters = new TrackSelectionParameters.Builder(this)
+				.setPreferredTextLanguage("fr") // Set preferred language, e.g., English
+				.build();
+		trackSelector.setParameters(parameters);
+
 		player = new ExoPlayer.Builder(this)
+				.setTrackSelector(trackSelector)
 				.build();
 
 		// Create the MediaItem to play
@@ -195,6 +209,7 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 				new MediaItem.Builder()
 						.setUri(Uri.parse(videoUrl));
 
+		// add external subtitles
 		if (ccUrl != null) {
 			// Set your VTT subtitle URI
 			Uri subtitleUri = Uri.parse(ccUrl);
