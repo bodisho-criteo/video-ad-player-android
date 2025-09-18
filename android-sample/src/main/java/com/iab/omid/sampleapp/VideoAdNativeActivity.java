@@ -62,9 +62,7 @@ public class VideoAdNativeActivity extends Activity implements Player.Listener, 
 
 	private static final String TAG = "CriteoVideoAd";
 
-	// link to vast, 10.0.2.2 in android emulator points to localhost of the pc
-	// http://10.0.2.2:8000/vast_omid.xml
-	private static final String VAST_URL = "http://10.0.2.2:8000/vast_omid.xml";
+	private static final String VAST_URL = "https://raw.githubusercontent.com/criteo/interview-ios/refs/heads/main/server/sample_vast_app.xml";
 
 	private static final int PLAYER_UNMUTE = 1;
 	private static final int PLAYER_MUTE = 0;
