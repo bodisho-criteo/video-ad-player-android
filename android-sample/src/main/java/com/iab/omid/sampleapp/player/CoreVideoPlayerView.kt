@@ -122,14 +122,6 @@ class CoreVideoPlayerView @JvmOverloads constructor(
         data class Error(val throwable: Throwable) : PlaybackState()
     }
 
-    // Common data structures to reduce repetition
-    data class PlayerPosition(
-        val positionMs: Long,
-        val durationMs: Long,
-        val bufferedMs: Long = 0L,
-        val isMuted: Boolean = false
-    )
-
     sealed class PlayerEffect {
         data class FatalError(val throwable: Throwable) : PlayerEffect()
         data class VolumeChanged(val isMuted: Boolean) : PlayerEffect()
@@ -152,9 +144,6 @@ class CoreVideoPlayerView @JvmOverloads constructor(
 
     private val isMuted: Boolean
         get() = player?.volume == PLAYER_MUTE
-
-    private val quartilesCompleted: Boolean
-        get() = currentQuartile == Quartile.THIRD
 
     init {
         playerView.layoutParams = LayoutParams(MATCH_PARENT, MATCH_PARENT)
