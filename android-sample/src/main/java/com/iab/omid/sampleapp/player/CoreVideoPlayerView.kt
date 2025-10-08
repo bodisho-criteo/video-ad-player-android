@@ -3,7 +3,6 @@ package com.iab.omid.sampleapp.player
 import android.content.Context
 import android.net.Uri
 import android.util.AttributeSet
-import android.util.Log
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -24,12 +23,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -38,8 +35,7 @@ private const val PLAYER_UNMUTE = 1f
 private const val PROGRESS_INTERVAL_MS = 100L // Parity with legacy implementation
 
 /**
- * Core reusable video player view (media-only). No VAST / OMID logic here.
- * Provides state & effect streams plus imperative controls.
+ * Core reusable video player view.
  */
 class CoreVideoPlayerView @JvmOverloads constructor(
     context: Context,
@@ -47,92 +43,23 @@ class CoreVideoPlayerView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : FrameLayout(context, attrs, defStyleAttr), Player.Listener {
 
-    sealed class PlaybackState(
-        open val positionMs: Long = 0L,
-        open val durationMs: Long = 0L,
-        open val bufferedMs: Long = 0L,
-        open val isMuted: Boolean = false,
-        val quartile: Quartile = Quartile.from(positionMs, durationMs)
-    ) {
+    data class PlayerState(
+        val playbackState: PlaybackState = PlaybackState.IDLE,
+        val isMuted: Boolean = false,
+        val quartile: Quartile = Quartile.UNKNOWN
+    )
 
-        data object Idle : PlaybackState()
-
-        data object Loading : PlaybackState()
-
-        data class Ready(
-            override val positionMs: Long,
-            override val durationMs: Long,
-            override val bufferedMs: Long,
-            override val isMuted: Boolean,
-        ) : PlaybackState(
-            positionMs = positionMs,
-            durationMs = durationMs,
-            bufferedMs = bufferedMs,
-            isMuted = isMuted
-        )
-
-        data class Playing(
-            override val positionMs: Long,
-            override val durationMs: Long,
-            override val bufferedMs: Long,
-            override val isMuted: Boolean
-        ) : PlaybackState(
-            positionMs = positionMs,
-            durationMs = durationMs,
-            bufferedMs = bufferedMs,
-            isMuted = isMuted
-        )
-
-        data class Paused(
-            override val positionMs: Long,
-            override val durationMs: Long,
-            override val bufferedMs: Long,
-            override val isMuted: Boolean
-        ) : PlaybackState(
-            positionMs = positionMs,
-            durationMs = durationMs,
-            bufferedMs = bufferedMs,
-            isMuted = isMuted
-        )
-
-        data class Buffering(
-            override val positionMs: Long,
-            override val durationMs: Long,
-            override val bufferedMs: Long,
-            override val isMuted: Boolean
-        ) : PlaybackState(
-            positionMs = positionMs,
-            durationMs = durationMs,
-            bufferedMs = bufferedMs,
-            isMuted = isMuted
-        )
-
-        data class Ended(
-            override val positionMs: Long,
-            override val durationMs: Long,
-            override val bufferedMs: Long,
-            override val isMuted: Boolean
-        ) : PlaybackState(
-            positionMs = positionMs,
-            durationMs = durationMs,
-            bufferedMs = bufferedMs,
-            isMuted = isMuted
-        )
-
-        data class Error(val throwable: Throwable) : PlaybackState()
+    enum class PlaybackState {
+        IDLE,
+        LOADING,
+        PLAYING,
+        PAUSED,
+        FINISHED,
+        ERROR;
     }
 
-    sealed class PlayerEffect {
-        data class FatalError(val throwable: Throwable) : PlayerEffect()
-        data class VolumeChanged(val isMuted: Boolean) : PlayerEffect()
-        data class QuartileAdvanced(val quartile: Quartile) : PlayerEffect()
-    }
-
-    private val _state = MutableStateFlow<PlaybackState>(PlaybackState.Idle)
-    val state: StateFlow<PlaybackState> = _state.asStateFlow()
-
-    private val _effects = MutableSharedFlow<PlayerEffect>(extraBufferCapacity = 8) // TODO why 8?
-    val effects: SharedFlow<PlayerEffect> = _effects.asSharedFlow()
+    private val _state = MutableStateFlow<PlayerState>(PlayerState())
+    val state: StateFlow<PlayerState> = _state.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -141,9 +68,6 @@ class CoreVideoPlayerView @JvmOverloads constructor(
     private var player: ExoPlayer? = null
     private var progressJobStarted = false
     private var currentQuartile: Quartile = Quartile.UNKNOWN
-
-    private val isMuted: Boolean
-        get() = player?.volume == PLAYER_MUTE
 
     init {
         playerView.layoutParams = LayoutParams(MATCH_PARENT, MATCH_PARENT)
@@ -156,6 +80,55 @@ class CoreVideoPlayerView @JvmOverloads constructor(
         release()
     }
 
+    // PLAYER LISTENER CALLBACKS
+    override fun onPlaybackStateChanged(playbackState: Int) {
+        super.onPlaybackStateChanged(playbackState)
+
+        val p = player ?: return
+        _state.update { currentState ->
+            currentState.copy(
+                playbackState = when (playbackState) {
+                    Player.STATE_READY -> {
+                        if (!progressJobStarted) startProgressLoop()
+                        if (p.isPlaying) PlaybackState.PLAYING else PlaybackState.PAUSED
+                    }
+                    Player.STATE_BUFFERING -> PlaybackState.LOADING
+                    Player.STATE_ENDED -> PlaybackState.FINISHED
+                    Player.STATE_IDLE -> PlaybackState.IDLE
+                    else -> PlaybackState.IDLE
+                }
+            )
+        }
+    }
+
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        super.onIsPlayingChanged(isPlaying)
+
+        _state.update { currentState ->
+            currentState.copy(
+                playbackState = if (isPlaying) {
+                    PlaybackState.PLAYING
+                } else {
+                    // Only switch to Paused if not buffering/finished
+                    when (currentState.playbackState) {
+                        PlaybackState.LOADING, PlaybackState.FINISHED -> currentState.playbackState
+                        else -> PlaybackState.PAUSED
+                    }
+                }
+            )
+        }
+    }
+
+    override fun onVolumeChanged(volume: Float) {
+        super.onVolumeChanged(volume)
+        _state.update { currentState -> currentState.copy(isMuted = volume == PLAYER_MUTE) }
+    }
+
+    override fun onPlayerError(error: PlaybackException) {
+        _state.update { currentState -> currentState.copy(playbackState = PlaybackState.ERROR) }
+    }
+
+    // PUBLIC PLAYER API
     @OptIn(UnstableApi::class)
     fun load(videoUri: Uri, subtitleUri: Uri? = null) {
         release() // Release the player and reset state in case it was already initialized
@@ -199,33 +172,15 @@ class CoreVideoPlayerView @JvmOverloads constructor(
                 exoPlayer.repeatMode = Player.REPEAT_MODE_ONE
                 exoPlayer.playWhenReady = true
                 exoPlayer.prepare()
-            }
 
-        scope.launch {
-            effects.collect { effect ->
-                when (effect) {
-                    is PlayerEffect.VolumeChanged -> {
-                        Log.d(TAG, "Volume changed, isMuted=${effect.isMuted}")
-                        _state.value = when (val s = _state.value) {
-                            is PlaybackState.Ready -> s.copy(isMuted = effect.isMuted)
-                            is PlaybackState.Playing -> s.copy(isMuted = effect.isMuted)
-                            is PlaybackState.Paused -> s.copy(isMuted = effect.isMuted)
-                            is PlaybackState.Buffering -> s.copy(isMuted = effect.isMuted)
-                            else -> s
-                        }
-                    }
-                    is PlayerEffect.QuartileAdvanced -> {
-                        Log.d(TAG, "Quartile advanced: ${effect.quartile}")
-                    }
-                    is PlayerEffect.FatalError -> {
-                        Log.e(TAG, "Fatal error: ${effect.throwable.message}")
-                        _state.value = PlaybackState.Error(effect.throwable)
-                    }
+                _state.update { currentState ->
+                    currentState.copy(
+                        playbackState = PlaybackState.LOADING,
+                        isMuted = exoPlayer.volume == PLAYER_MUTE,
+                        quartile = Quartile.from(exoPlayer.currentPosition, exoPlayer.duration)
+                    )
                 }
             }
-        }
-
-        _state.value = PlaybackState.Loading
     }
 
     fun release() {
@@ -238,7 +193,12 @@ class CoreVideoPlayerView @JvmOverloads constructor(
 
         scope.cancel()
 
-        _state.value = PlaybackState.Idle
+        _state.update { currentState ->
+            currentState.copy(
+                playbackState = PlaybackState.IDLE,
+                quartile = Quartile.UNKNOWN
+            )
+        }
     }
 
     fun play() {
@@ -249,73 +209,20 @@ class CoreVideoPlayerView @JvmOverloads constructor(
         player?.pause()
     }
 
+    fun togglePlayPause() {
+        player?.let {
+            if (it.isPlaying) it.pause() else it.play()
+        }
+    }
+
     fun toggleMute() {
-        player?.volume = if (isMuted) PLAYER_UNMUTE else PLAYER_MUTE
-        _effects.tryEmit(PlayerEffect.VolumeChanged(isMuted))
+        player?.let {
+            it.volume = if (it.volume == PLAYER_MUTE) PLAYER_UNMUTE else PLAYER_MUTE
+        }
     }
 
     fun seekTo(positionMs: Long) {
         player?.seekTo(positionMs)
-    }
-
-    override fun onPlaybackStateChanged(playbackState: Int) {
-        val p = player ?: return
-        when (playbackState) {
-            Player.STATE_READY -> {
-                if (!progressJobStarted) startProgressLoop()
-                if (_state.value is PlaybackState.Loading || _state.value is PlaybackState.Idle) {
-                    _state.value = PlaybackState.Ready(
-                        positionMs = p.currentPosition,
-                        durationMs = if (p.duration > 0) p.duration else 0L,
-                        bufferedMs = p.bufferedPosition,
-                        isMuted = isMuted
-                    )
-                }
-            }
-            Player.STATE_BUFFERING -> {
-                _state.value = PlaybackState.Buffering(
-                    positionMs = p.currentPosition,
-                    durationMs = if (p.duration > 0) p.duration else 0L,
-                    bufferedMs = p.bufferedPosition,
-                    isMuted = isMuted
-                )
-            }
-            Player.STATE_ENDED -> {
-                _state.value = PlaybackState.Ended(
-                    positionMs = p.currentPosition,
-                    durationMs = if (p.duration > 0) p.duration else 0L,
-                    bufferedMs = p.bufferedPosition,
-                    isMuted = isMuted
-                )
-            }
-            Player.STATE_IDLE -> {
-                _state.value = PlaybackState.Idle
-            }
-        }
-    }
-
-    override fun onIsPlayingChanged(isPlaying: Boolean) {
-        val p = player ?: return
-        _state.value = if (isPlaying) {
-            PlaybackState.Playing(
-                positionMs = p.currentPosition,
-                durationMs = if (p.duration > 0) p.duration else 0L,
-                bufferedMs = p.bufferedPosition,
-                isMuted = isMuted
-            )
-        } else {
-            // Only switch to Paused if not buffering/ended
-            when (_state.value) {
-                is PlaybackState.Buffering,
-                is PlaybackState.Ended -> _state.value
-                else -> PlaybackState.Paused(
-                    positionMs = p.currentPosition,
-                    durationMs = if (p.duration > 0) p.duration else 0L,
-                    bufferedMs = p.bufferedPosition,
-                    isMuted = isMuted
-                )
-            }
-        }
     }
 
     private fun startProgressLoop() {
@@ -329,8 +236,8 @@ class CoreVideoPlayerView @JvmOverloads constructor(
                     val newQuartile: Quartile = Quartile.from(currentPosition, duration)
 
                     // Don't send old quartile stats that we have either already sent, or passed.
-                    if (newQuartile != currentQuartile  && newQuartile.ordinal > currentQuartile.ordinal) {
-                        _effects.tryEmit(PlayerEffect.QuartileAdvanced(newQuartile))
+                    if (newQuartile.ordinal > currentQuartile.ordinal) {
+                        _state.update { currentState -> currentState.copy(quartile = newQuartile) }
                     }
                 }
 
@@ -338,10 +245,4 @@ class CoreVideoPlayerView @JvmOverloads constructor(
             }
         }
     }
-
-    override fun onPlayerError(error: PlaybackException) {
-        _effects.tryEmit(PlayerEffect.FatalError(error))
-    }
-
-    companion object { private const val TAG = "CoreVideoPlayer" }
 }
