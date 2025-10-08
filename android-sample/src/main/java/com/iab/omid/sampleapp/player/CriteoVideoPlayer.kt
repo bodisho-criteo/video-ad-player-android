@@ -37,7 +37,7 @@ private const val PROGRESS_INTERVAL_MS = 100L // Parity with legacy implementati
 /**
  * Core reusable video player view.
  */
-class CoreVideoPlayerView @JvmOverloads constructor(
+class CriteoVideoPlayer @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
