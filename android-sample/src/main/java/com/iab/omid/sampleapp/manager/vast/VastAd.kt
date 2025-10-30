@@ -6,6 +6,7 @@ import java.net.URL
  * Immutable data class representing a VAST (Video Ad Serving Template) ad.
  *
  * @property videoUrl The URL of the video asset.
+ * @property mediaFiles All available MediaFile renditions parsed from the VAST.
  * @property duration The duration of the video in HH:MM:SS format.
  * @property impressionUrls List of beacon URLs to be pinged when the ad is viewed.
  * @property errorUrls List of beacon URLs to be pinged in case of an error.
@@ -20,6 +21,7 @@ import java.net.URL
  */
 data class VastAd(
     val videoUrl: URL? = null,
+    val mediaFiles: List<VastMediaFile> = emptyList(),
     val duration: String? = null,
     val impressionUrls: List<URL> = emptyList(),
     val errorUrls: List<URL> = emptyList(),
