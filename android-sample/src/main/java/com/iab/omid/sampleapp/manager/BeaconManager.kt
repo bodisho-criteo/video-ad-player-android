@@ -16,7 +16,7 @@ import okhttp3.Request
 /**
  * Manages beacon firing with retry logic, error handling, and task cancellation.
  */
-internal class BeaconManager(
+class BeaconManager(
     private val httpClient: OkHttpClient,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) {

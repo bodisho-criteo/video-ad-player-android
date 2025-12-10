@@ -8,9 +8,10 @@ package com.iab.omid.sampleapp.player.tracking
  *  - FIRST: >=25% and <50%
  *  - SECOND: >=50% and <75%
  *  - THIRD: >=75%
+ *  - COMPLETE: 100%
  */
 enum class Quartile {
-    UNKNOWN, START, FIRST, SECOND, THIRD;
+    UNKNOWN, START, FIRST, SECOND, THIRD, COMPLETE;
 
     companion object {
         private const val EPSILON = 0.000001
@@ -22,7 +23,8 @@ enum class Quartile {
             if (lessThan(fraction, 0.25)) return START
             if (lessThan(fraction, 0.5)) return FIRST
             if (lessThan(fraction, 0.75)) return SECOND
-            return THIRD
+            if (lessThan(fraction, 1.0)) return THIRD
+            return COMPLETE
         }
     }
 }
