@@ -65,6 +65,12 @@ class CriteoVideoPlayer @JvmOverloads constructor(
     private val _state = MutableStateFlow<PlayerState>(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
+    val currentPositionMs: Long
+        get() = player?.currentPosition ?: 0L
+
+    val durationMs: Long
+        get() = player?.duration ?: 0L
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val playerView: PlayerView = PlayerView(context)
