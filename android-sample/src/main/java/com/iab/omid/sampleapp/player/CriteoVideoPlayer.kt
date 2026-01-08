@@ -1,10 +1,18 @@
 package com.iab.omid.sampleapp.player
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.net.Uri
 import android.util.AttributeSet
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import androidx.annotation.ColorInt
+import androidx.annotation.DrawableRes
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -77,14 +85,85 @@ class CriteoVideoPlayer @JvmOverloads constructor(
         layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT)
     }
 
+    private val closedCaptionButton = Button(context).apply {
+        text = "CC"
+        setTextColor(closedCaptionButtonTextColor)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        setBackgroundColor(Color.LTGRAY)
+
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            val minSizePx = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                32f,
+                context.resources.displayMetrics
+            ).toInt()
+            minHeight = minSizePx
+            minimumHeight = minSizePx
+            minWidth = minSizePx
+            minimumWidth = minSizePx
+
+            val padding = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                12f,
+                context.resources.displayMetrics
+            ).toInt()
+            topMargin = padding
+            marginStart = padding
+
+            gravity = Gravity.TOP or Gravity.START
+        }
+
+        setOnClickListener { toggleClosedCaptions() }
+    }
+
+    private val closedCaptionButtonTextColor: Int @ColorInt
+        get() = if (isClosedCaptionEnabled) Color.WHITE else Color.DKGRAY
+
+    private val muteButton = ImageButton(context).apply {
+        setImageResource(muteButtonIconDrawableRes)
+        imageTintList = ColorStateList.valueOf(closedCaptionButtonTextColor)
+        setBackgroundColor(Color.LTGRAY)
+
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            val minSizePx = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                32f,
+                context.resources.displayMetrics
+            ).toInt()
+            height = minSizePx
+            minimumHeight = minSizePx
+            width = minSizePx
+            minimumWidth = minSizePx
+
+            val padding = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                12f,
+                context.resources.displayMetrics
+            ).toInt()
+            bottomMargin = padding
+            marginStart = padding
+
+            gravity = Gravity.BOTTOM or Gravity.START
+        }
+
+        setOnClickListener { toggleMute() }
+    }
+
+    private val muteButtonIconDrawableRes: Int @DrawableRes
+        get() = if (state.value.isMuted) android.R.drawable.ic_lock_silent_mode else android.R.drawable.ic_lock_silent_mode_off
+
     private var player: ExoPlayer? = null
     private var beaconManager: BeaconManager? = null
     private var vastAd: VastAd? = null
 
     private var progressJobStarted = false
+    private var isClosedCaptionEnabled = false
 
     init {
         addView(playerView)
+        addView(closedCaptionButton)
+        addView(muteButton)
     }
 
     override fun onDetachedFromWindow() {
@@ -134,6 +213,7 @@ class CriteoVideoPlayer @JvmOverloads constructor(
     override fun onVolumeChanged(volume: Float) {
         super.onVolumeChanged(volume)
         _state.update { currentState -> currentState.copy(isMuted = volume == PLAYER_MUTE) }
+        muteButton.setImageResource(muteButtonIconDrawableRes)
     }
 
     override fun onPlayerError(error: PlaybackException) {
@@ -170,6 +250,14 @@ class CriteoVideoPlayer @JvmOverloads constructor(
                         .build()
 
                     builder.setSubtitleConfigurations(listOf(subtitleConfig))
+
+                    isClosedCaptionEnabled = true
+
+                    // Update button appearance
+                    closedCaptionButton.apply {
+                        isSelected = isClosedCaptionEnabled
+                        setTextColor(closedCaptionButtonTextColor)
+                    }
                 }
             }
             .build()
@@ -357,5 +445,26 @@ class CriteoVideoPlayer @JvmOverloads constructor(
         } else {
             CriteoLogger.debug("No beacon URL found for action type: $actionType", category = Category.BEACON)
         }
+    }
+
+    private fun toggleClosedCaptions() {
+        isClosedCaptionEnabled = !isClosedCaptionEnabled
+
+        // Update button appearance
+        closedCaptionButton.apply {
+            isSelected = isClosedCaptionEnabled
+            setTextColor(closedCaptionButtonTextColor)
+        }
+
+        // Toggle subtitle track
+        player?.let { exoPlayer ->
+            // Access the track selector if available
+            val currentParams = exoPlayer.trackSelectionParameters
+            exoPlayer.trackSelectionParameters = currentParams.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !isClosedCaptionEnabled)
+                .build()
+        }
+
+        CriteoLogger.debug("Closed captions toggled: $isClosedCaptionEnabled", Category.VIDEO)
     }
 }
