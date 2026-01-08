@@ -3,7 +3,7 @@ package com.iab.omid.sampleapp.player
 import android.content.Context
 import android.net.Uri
 import android.util.AttributeSet
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -74,7 +74,7 @@ class CriteoVideoPlayer @JvmOverloads constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val playerView: PlayerView = PlayerView(context).apply {
-        layoutParams = LayoutParams(MATCH_PARENT, MATCH_PARENT)
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT)
     }
 
     private var player: ExoPlayer? = null

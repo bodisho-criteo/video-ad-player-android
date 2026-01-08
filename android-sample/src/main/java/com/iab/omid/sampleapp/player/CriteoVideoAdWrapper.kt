@@ -496,7 +496,7 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
 
         // Create new player
         val player = CriteoVideoPlayer(context).apply {
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
         }
 
         // Configure player
