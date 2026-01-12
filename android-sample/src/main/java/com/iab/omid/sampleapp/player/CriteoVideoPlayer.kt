@@ -1,11 +1,21 @@
 package com.iab.omid.sampleapp.player
 
 import android.content.Context
+import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.net.Uri
 import android.util.AttributeSet
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import androidx.annotation.ColorInt
+import androidx.annotation.DrawableRes
 import androidx.annotation.OptIn
+import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaItem.SubtitleConfiguration
@@ -73,18 +83,89 @@ class CriteoVideoPlayer @JvmOverloads constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private val playerView: PlayerView = PlayerView(context)
+    private val playerView: PlayerView = PlayerView(context).apply {
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT)
+    }
+
+    private val closedCaptionButton = Button(context).apply {
+        text = "CC"
+        setTextColor(closedCaptionButtonTextColor)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        setBackgroundColor(Color.LTGRAY)
+
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            val minSizePx = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                32f,
+                context.resources.displayMetrics
+            ).toInt()
+            minHeight = minSizePx
+            minimumHeight = minSizePx
+            minWidth = minSizePx
+            minimumWidth = minSizePx
+
+            val padding = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                12f,
+                context.resources.displayMetrics
+            ).toInt()
+            topMargin = padding
+            marginStart = padding
+
+            gravity = Gravity.TOP or Gravity.START
+        }
+
+        setOnClickListener { toggleClosedCaptions() }
+    }
+
+    private val closedCaptionButtonTextColor: Int @ColorInt
+        get() = if (isClosedCaptionEnabled) Color.WHITE else Color.DKGRAY
+
+    private val muteButton = ImageButton(context).apply {
+        setImageResource(muteButtonIconDrawableRes)
+        imageTintList = ColorStateList.valueOf(closedCaptionButtonTextColor)
+        setBackgroundColor(Color.LTGRAY)
+
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            val minSizePx = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                32f,
+                context.resources.displayMetrics
+            ).toInt()
+            height = minSizePx
+            minimumHeight = minSizePx
+            width = minSizePx
+            minimumWidth = minSizePx
+
+            val padding = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                12f,
+                context.resources.displayMetrics
+            ).toInt()
+            bottomMargin = padding
+            marginStart = padding
+
+            gravity = Gravity.BOTTOM or Gravity.START
+        }
+
+        setOnClickListener { toggleMute() }
+    }
+
+    private val muteButtonIconDrawableRes: Int @DrawableRes
+        get() = if (state.value.isMuted) android.R.drawable.ic_lock_silent_mode else android.R.drawable.ic_lock_silent_mode_off
 
     private var player: ExoPlayer? = null
     private var beaconManager: BeaconManager? = null
     private var vastAd: VastAd? = null
 
     private var progressJobStarted = false
+    private var isClosedCaptionEnabled = false
 
     init {
-        playerView.layoutParams = LayoutParams(MATCH_PARENT, MATCH_PARENT)
-        playerView.useController = false
         addView(playerView)
+        addView(closedCaptionButton)
+        addView(muteButton)
     }
 
     override fun onDetachedFromWindow() {
@@ -134,6 +215,7 @@ class CriteoVideoPlayer @JvmOverloads constructor(
     override fun onVolumeChanged(volume: Float) {
         super.onVolumeChanged(volume)
         _state.update { currentState -> currentState.copy(isMuted = volume == PLAYER_MUTE) }
+        muteButton.setImageResource(muteButtonIconDrawableRes)
     }
 
     override fun onPlayerError(error: PlaybackException) {
@@ -152,7 +234,10 @@ class CriteoVideoPlayer @JvmOverloads constructor(
     // PUBLIC PLAYER API
     @OptIn(UnstableApi::class)
     fun load(videoUri: Uri, subtitleUri: Uri? = null) {
-        release() // Release the player and reset state in case it was already initialized
+        // Release the player and reset state if it was already initialized
+        if (player != null) {
+            release()
+        }
 
         // Create the MediaItem to play
         val mediaItem = MediaItem.Builder()
@@ -167,6 +252,14 @@ class CriteoVideoPlayer @JvmOverloads constructor(
                         .build()
 
                     builder.setSubtitleConfigurations(listOf(subtitleConfig))
+
+                    isClosedCaptionEnabled = true
+
+                    // Update button appearance
+                    closedCaptionButton.apply {
+                        isSelected = isClosedCaptionEnabled
+                        setTextColor(closedCaptionButtonTextColor)
+                    }
                 }
             }
             .build()
@@ -211,10 +304,6 @@ class CriteoVideoPlayer @JvmOverloads constructor(
         player?.removeListener(this)
         player?.release()
         player = null
-
-        beaconManager = null
-
-        vastAd = null
 
         progressJobStarted = false
 
@@ -308,12 +397,18 @@ class CriteoVideoPlayer @JvmOverloads constructor(
         // TODO fire OMID click event
 
         vastAd?.let { ad ->
-            // Fire click tracking beacons
-            beaconManager?.fireClickTrackingBeacons(ad = ad)
-
             if (ad.clickThroughUrl != null) {
-                // TODO open url in browser (use callback to activity/fragment)
+                // Fire click tracking beacons
+                beaconManager?.fireClickTrackingBeacons(ad = ad)
+
                 CriteoLogger.debug("Opening click-through URL: ${ad.clickThroughUrl}", Category.VIDEO)
+
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, ad.clickThroughUrl.toString().toUri())
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    CriteoLogger.warning("Failed to open click-through URL: ${e.localizedMessage}", Category.VIDEO)
+                }
             } else {
                 // No click-through URL available, use tap as pause/resume toggle
                 togglePlayPause(fromUserInteraction = true)
@@ -358,5 +453,26 @@ class CriteoVideoPlayer @JvmOverloads constructor(
         } else {
             CriteoLogger.debug("No beacon URL found for action type: $actionType", category = Category.BEACON)
         }
+    }
+
+    private fun toggleClosedCaptions() {
+        isClosedCaptionEnabled = !isClosedCaptionEnabled
+
+        // Update button appearance
+        closedCaptionButton.apply {
+            isSelected = isClosedCaptionEnabled
+            setTextColor(closedCaptionButtonTextColor)
+        }
+
+        // Toggle subtitle track
+        player?.let { exoPlayer ->
+            // Access the track selector if available
+            val currentParams = exoPlayer.trackSelectionParameters
+            exoPlayer.trackSelectionParameters = currentParams.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !isClosedCaptionEnabled)
+                .build()
+        }
+
+        CriteoLogger.debug("Closed captions toggled: $isClosedCaptionEnabled", Category.VIDEO)
     }
 }

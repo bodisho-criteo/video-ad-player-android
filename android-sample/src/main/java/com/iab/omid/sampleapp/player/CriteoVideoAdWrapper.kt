@@ -33,6 +33,7 @@ import java.net.URL
 import androidx.core.net.toUri
 import androidx.core.graphics.toColorInt
 import com.iab.omid.sampleapp.player.CriteoVideoAdError.InvalidURL
+import kotlinx.coroutines.isActive
 
 /**
  * CriteoVideoAdWrapper - Production-ready wrapper for video ad integration
@@ -320,12 +321,12 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
 
     // PUBLIC API
     fun loadVideoAd(source: VASTSource) {
-        if (currentState != CriteoVideoAdState.NotLoaded) return
-
-        vastSource = source
-
-        currentState = CriteoVideoAdState.Loading
-
+        synchronized(this) {
+            if (currentState != CriteoVideoAdState.NotLoaded) return
+            vastSource = source
+            currentState = CriteoVideoAdState.Loading
+        }
+        preloadJob?.cancel()
         preloadJob = scope.launch {
             performAssetDownload(source)
         }
@@ -495,7 +496,7 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
 
         // Create new player
         val player = CriteoVideoPlayer(context).apply {
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
         }
 
         // Configure player
@@ -528,7 +529,7 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
 
         // Set up progress tracking - poll position periodically
         scope.launch {
-            while (true) {
+            while (isActive) {
                 delay(100) // Update every 100ms
                 if (player.state.value.playbackState == CriteoVideoPlayer.PlaybackState.PLAYING) {
                     lastPlaybackPosition = player.currentPositionMs
