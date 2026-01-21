@@ -191,16 +191,16 @@ class CriteoVideoPlayer @JvmOverloads constructor(
             else -> PlaybackState.IDLE
         }
 
-        val isComplete = playbackState == Player.STATE_ENDED && state.value.quartile != Quartile.COMPLETE
+        val shouldFireCompleteBeacon = playbackState == Player.STATE_ENDED && state.value.quartile != Quartile.COMPLETE
 
         _state.update { currentState ->
             currentState.copy(
                 playbackState = newPlaybackState,
-                quartile = if (isComplete) Quartile.COMPLETE else currentState.quartile
+                quartile = if (shouldFireCompleteBeacon) Quartile.COMPLETE else currentState.quartile
             )
         }
 
-        if (isComplete) {
+        if (shouldFireCompleteBeacon) {
             stopQuartileTrackingAndFireComplete()
         }
     }
