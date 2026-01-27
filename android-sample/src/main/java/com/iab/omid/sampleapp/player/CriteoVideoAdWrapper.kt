@@ -165,7 +165,7 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
      * Whether the video is muted
      */
     val isMuted: Boolean
-        get() = videoPlayer?.state?.value?.isMuted ?: savedMutedState
+        get() = videoPlayer?.state?.value?.isMuted ?: true
 
     /**
      * Current playback time in milliseconds
@@ -249,14 +249,10 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
     private var closedCaptionsAssetFile: File? = null
     private var lastPlaybackPosition: Long = 0L
     private var isUserPaused: Boolean = false
-    private var savedMutedState: Boolean = false
 
     private var preloadJob: Job? = null
 
     init {
-        // Initialize mute state based on configuration
-        savedMutedState = configuration.startsMuted
-
         // Setup UI components
         loadingContainerView = FrameLayout(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
@@ -547,7 +543,7 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
         player.load(videoUri, subtitleUri)
 
         // Set mute state after loading
-        if (savedMutedState) {
+        if (configuration.startsMuted != player.state.value.isMuted) {
             player.toggleMute()
         }
 
