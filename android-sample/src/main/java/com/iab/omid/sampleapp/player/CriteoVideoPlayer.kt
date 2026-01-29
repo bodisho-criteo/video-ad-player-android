@@ -60,7 +60,7 @@ class CriteoVideoPlayer @JvmOverloads constructor(
 
     data class PlayerState(
         val playbackState: PlaybackState = PlaybackState.IDLE,
-        val isMuted: Boolean = false,
+        val isMuted: Boolean = true,
         val quartile: Quartile = Quartile.UNKNOWN
     )
 
@@ -198,7 +198,7 @@ class CriteoVideoPlayer @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        release()
+        pause(fromUserInteraction = false)
     }
 
     // PLAYER LISTENER CALLBACKS
@@ -287,7 +287,12 @@ class CriteoVideoPlayer @JvmOverloads constructor(
 
     // PUBLIC PLAYER API
     @OptIn(UnstableApi::class)
-    fun load(videoUri: Uri, subtitleUri: Uri? = null) {
+    fun load(
+        videoUri: Uri,
+        subtitleUri: Uri? = null,
+        playWhenReady: Boolean = true,
+        startsMuted: Boolean = true
+    ) {
         // Release the player and reset state if it was already initialized
         if (player != null) {
             release()
@@ -337,9 +342,9 @@ class CriteoVideoPlayer @JvmOverloads constructor(
 
                 exoPlayer.addListener(this)
                 exoPlayer.setMediaItem(mediaItem)
-                exoPlayer.volume = PLAYER_MUTE
+                exoPlayer.volume = if (startsMuted) PLAYER_MUTE else PLAYER_UNMUTE
                 exoPlayer.repeatMode = Player.REPEAT_MODE_ONE
-                exoPlayer.playWhenReady = true
+                exoPlayer.playWhenReady = playWhenReady
                 exoPlayer.prepare()
 
                 _state.update { currentState ->

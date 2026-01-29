@@ -48,7 +48,8 @@ import kotlinx.coroutines.isActive
  * - Closed captions support (VTT/WebVTT)
  * - Smart media file selection based on aspect ratio
  * - Click-through URL handling
- * - Automatic cleanup on detachment
+ * - Automatic pause on view detachment (RecyclerView friendly)
+ * - Manual release() for full resource cleanup
  *
  * FEATURES:
  * - Multiple initialization methods: constructor, fromUrl(), fromXml()
@@ -82,6 +83,7 @@ import kotlinx.coroutines.isActive
  *   - seekTo(timeMs: Long) - Seek to position
  *   - toggleMute() - Toggle mute state
  *   - retry() - Retry loading after error
+ *   - release() - Release all resources (call when done with the wrapper)
  *
  * USAGE EXAMPLES:
  *
@@ -165,7 +167,7 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
      * Whether the video is muted
      */
     val isMuted: Boolean
-        get() = videoPlayer?.state?.value?.isMuted ?: savedMutedState
+        get() = videoPlayer?.state?.value?.isMuted ?: true
 
     /**
      * Current playback time in milliseconds
@@ -249,14 +251,10 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
     private var closedCaptionsAssetFile: File? = null
     private var lastPlaybackPosition: Long = 0L
     private var isUserPaused: Boolean = false
-    private var savedMutedState: Boolean = false
 
     private var preloadJob: Job? = null
 
     init {
-        // Initialize mute state based on configuration
-        savedMutedState = configuration.startsMuted
-
         // Setup UI components
         loadingContainerView = FrameLayout(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
@@ -314,9 +312,8 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
     // LIFECYCLE METHODS
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        preloadJob?.cancel()
-        videoPlayer?.release()
-        scope.cancel()
+        // Only pause on detach, parent responsible for calling release() when truly done
+        videoPlayer?.pause(fromUserInteraction = false)
     }
 
     // PUBLIC API
@@ -365,6 +362,31 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
         wrapperLog("Retry button tapped", Category.UI)
         currentState = CriteoVideoAdState.NotLoaded
         loadVideoAd(source)
+    }
+
+    /**
+     * Release all resources held by this wrapper.
+     *
+     * Call this method when you are completely done with the video ad wrapper
+     * (e.g., in Fragment's onDestroyView or Activity's onDestroy).
+     *
+     * After calling release(), the wrapper cannot be reused. Create a new instance
+     * if you need to load another video ad.
+     *
+     * Note: This is NOT called automatically on view detachment to support
+     * RecyclerView scenarios where views are frequently recycled.
+     */
+    fun release() {
+        wrapperLog("Releasing video ad wrapper", Category.VIDEO)
+        preloadJob?.cancel()
+        preloadJob = null
+        videoPlayer?.release()
+        videoPlayer = null
+        scope.cancel()
+        vastAd = null
+        videoAssetFile = null
+        closedCaptionsAssetFile = null
+        currentState = CriteoVideoAdState.NotLoaded
     }
 
     // PRIVATE HELPERS
@@ -472,10 +494,8 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
             currentState = CriteoVideoAdState.Ready
             onVideoLoaded?.invoke()
 
-            // Auto-setup player if ready
-            if (configuration.autoLoad) {
-                setupVideoPlayer()
-            }
+            // Setup player after assets are ready
+            setupVideoPlayer()
         } catch (error: Throwable) {
             wrapperLog("Asset download failed: $error", Category.NETWORK)
             currentState = CriteoVideoAdState.Error(error)
@@ -544,12 +564,12 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
         // Load video
         val videoUri = Uri.fromFile(videoFile)
         val subtitleUri = closedCaptionsAssetFile?.let { Uri.fromFile(it) }
-        player.load(videoUri, subtitleUri)
-
-        // Set mute state after loading
-        if (savedMutedState) {
-            player.toggleMute()
-        }
+        player.load(
+            videoUri = videoUri,
+            subtitleUri = subtitleUri,
+            playWhenReady = configuration.autoLoad && !isUserPaused,
+            startsMuted = configuration.startsMuted
+        )
 
         // Handle click for click-through URL
         player.setOnClickListener {
@@ -560,11 +580,6 @@ class CriteoVideoAdWrapper @JvmOverloads constructor(
         // Seek to saved position if any
         if (lastPlaybackPosition > 0) {
             player.seekTo(lastPlaybackPosition)
-        }
-
-        // Auto-play if not user-paused
-        if (!isUserPaused) {
-            player.play(fromUserInteraction = false)
         }
 
         videoPlayer = player
@@ -694,7 +709,7 @@ enum class CriteoVideoAdLogCategory {
  */
 data class CriteoVideoAdConfiguration(
     val autoLoad: Boolean = true,
-    val startsMuted: Boolean = false,
+    val startsMuted: Boolean = true,
     val backgroundColor: Int = Color.WHITE,
     val loadingBackgroundColor: Int = "#F2F2F7".toColorInt(),
     val loadingIndicatorColor: Int = "#AEAEB2".toColorInt(),
