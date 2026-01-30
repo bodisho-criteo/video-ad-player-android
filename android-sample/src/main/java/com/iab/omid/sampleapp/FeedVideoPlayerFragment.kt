@@ -45,6 +45,25 @@ class FeedVideoPlayerFragment : Fragment() {
         setupRecyclerView(view)
     }
 
+    override fun onResume() {
+        super.onResume()
+
+        // Initial visibility check after layout
+        view?.post { checkVideoVisibility() }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        adapter?.pauseAllVideos()
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        adapter?.cleanupVideos()
+        recyclerView = null
+        adapter = null
+    }
+
     private fun setupRecyclerView(view: View) {
         adapter = FeedAdapter()
 
@@ -68,9 +87,6 @@ class FeedVideoPlayerFragment : Fragment() {
                 }
             })
         }
-
-        // Initial visibility check after layout
-        view.post { checkVideoVisibility() }
     }
 
     /**
@@ -109,18 +125,6 @@ class FeedVideoPlayerFragment : Fragment() {
                 maxOf(viewBounds.top, recyclerBounds.top)
 
         return if (visibleHeight > 0) (visibleHeight * 100) / view.height else 0
-    }
-
-    override fun onPause() {
-        super.onPause()
-        adapter?.pauseAllVideos()
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        adapter?.cleanupVideos()
-        recyclerView = null
-        adapter = null
     }
 
     companion object {
@@ -261,6 +265,7 @@ class FeedVideoPlayerFragment : Fragment() {
 
         fun pauseAllVideos() {
             videoAdWrappers.values.forEach { it.pause() }
+            videoAdViewHolders.forEach { it.onVisibilityChanged(false) }
         }
 
         fun cleanupVideos() {

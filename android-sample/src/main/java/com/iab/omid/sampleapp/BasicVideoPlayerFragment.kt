@@ -87,6 +87,16 @@ class BasicVideoPlayerFragment : Fragment() {
         view?.findViewById<FrameLayout>(R.id.videoAdContainer)?.addView(videoAdWrapper)
     }
 
+    override fun onResume() {
+        super.onResume()
+        videoAdWrapper?.play()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        videoAdWrapper?.pause()
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         videoAdWrapper?.release()
