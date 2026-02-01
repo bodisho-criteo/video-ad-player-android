@@ -386,6 +386,7 @@ class CriteoVideoPlayer @JvmOverloads constructor(
     }
 
     fun pause(fromUserInteraction: Boolean) {
+        if (player?.isPlaying != true) return
         player?.pause()
 
         omidSessionInteractor?.firePause()
