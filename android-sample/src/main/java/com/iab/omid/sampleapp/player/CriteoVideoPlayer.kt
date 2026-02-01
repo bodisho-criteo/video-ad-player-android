@@ -298,6 +298,9 @@ class CriteoVideoPlayer @JvmOverloads constructor(
             release()
         }
 
+        isClosedCaptionEnabled = false
+        closedCaptionButton.visibility = if (subtitleUri != null) VISIBLE else GONE
+
         // Create the MediaItem to play
         val mediaItem = MediaItem.Builder()
             .setUri(videoUri)
