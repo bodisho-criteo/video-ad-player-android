@@ -35,12 +35,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Navigation helpers
-    fun showBasicVideoPlayerScreen() {
-        navigateToFragment(BasicVideoPlayerFragment())
+    fun showBasicVideoPlayerScreen(vastUrl: String) {
+        val fragment = BasicVideoPlayerFragment().apply {
+            arguments = Bundle().apply {
+                putString("vast_url", vastUrl)
+            }
+        }
+        navigateToFragment(fragment)
     }
 
-    fun showFeedVideoPlayerScreen() {
-        navigateToFragment(FeedVideoPlayerFragment())
+    fun showFeedVideoPlayerScreen(vastUrl: String) {
+        val fragment = FeedVideoPlayerFragment().apply {
+            arguments = Bundle().apply {
+                putString("vast_url", vastUrl)
+            }
+        }
+        navigateToFragment(fragment)
     }
 
     private fun navigateToFragment(fragment: Fragment) {
@@ -51,6 +61,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val VAST_DEMO_URL = "https://raw.githubusercontent.com/criteo/vast-file-examples/refs/heads/main/server/sample_vast_app.xml"
+        const val VAST_DEMO_URL_SINGLE_MEDIA = "https://raw.githubusercontent.com/criteo/vast-file-examples/refs/heads/main/server/sample_vast_app.xml"
+        const val VAST_DEMO_URL_MULTIPLE_MEDIA = "https://raw.githubusercontent.com/criteo/vast-file-examples/refs/heads/main/server/sample_vast_app_multiple_media.xml"
+        const val VAST_DEMO_URL_NO_CAPTIONS = "https://raw.githubusercontent.com/criteo/vast-file-examples/refs/heads/main/server/sample_vast_app_no_closed_caption.xml"
+        const val VAST_DEMO_URL_CLICK_THROUGH = "https://raw.githubusercontent.com/criteo/vast-file-examples/refs/heads/main/server/sample_vast_app_with_clickthrough.xml"
+
     }
 }

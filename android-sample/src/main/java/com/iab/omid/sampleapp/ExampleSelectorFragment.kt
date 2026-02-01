@@ -4,8 +4,13 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.RadioGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import com.iab.omid.sampleapp.MainActivity.Companion.VAST_DEMO_URL_CLICK_THROUGH
+import com.iab.omid.sampleapp.MainActivity.Companion.VAST_DEMO_URL_MULTIPLE_MEDIA
+import com.iab.omid.sampleapp.MainActivity.Companion.VAST_DEMO_URL_NO_CAPTIONS
+import com.iab.omid.sampleapp.MainActivity.Companion.VAST_DEMO_URL_SINGLE_MEDIA
 
 /**
  * A fragment that displays a list of example items for video ad demonstrations.
@@ -30,11 +35,24 @@ class ExampleSelectorFragment : Fragment() {
         (requireActivity() as? AppCompatActivity)?.supportActionBar?.title = "Video Ad Examples"
 
         view.findViewById<View>(R.id.basicVideoPlayerItem)?.setOnClickListener {
-            (activity as? MainActivity)?.showBasicVideoPlayerScreen()
+            val url = getSelectedVastUrl(view)
+            (activity as? MainActivity)?.showBasicVideoPlayerScreen(url)
         }
 
         view.findViewById<View>(R.id.feedVideoPlayerItem)?.setOnClickListener {
-            (activity as? MainActivity)?.showFeedVideoPlayerScreen()
+            val url = getSelectedVastUrl(view)
+            (activity as? MainActivity)?.showFeedVideoPlayerScreen(url)
+        }
+    }
+
+    private fun getSelectedVastUrl(view: View): String {
+        val radioGroup = view.findViewById<RadioGroup>(R.id.vastUrlRadioGroup)
+        return when (radioGroup.checkedRadioButtonId) {
+            R.id.vastUrlSingleMedia -> VAST_DEMO_URL_SINGLE_MEDIA
+            R.id.vastUrlMultipleMedia -> VAST_DEMO_URL_MULTIPLE_MEDIA
+            R.id.vastUrlNoClosedCaptions -> VAST_DEMO_URL_NO_CAPTIONS
+            R.id.vastUrlWithClickThrough -> VAST_DEMO_URL_CLICK_THROUGH
+            else -> VAST_DEMO_URL_SINGLE_MEDIA
         }
     }
 }

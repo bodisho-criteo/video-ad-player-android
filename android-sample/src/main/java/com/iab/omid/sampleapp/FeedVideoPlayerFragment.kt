@@ -13,7 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.iab.omid.sampleapp.MainActivity.Companion.VAST_DEMO_URL
+import com.iab.omid.sampleapp.MainActivity.Companion.VAST_DEMO_URL_SINGLE_MEDIA
 import com.iab.omid.sampleapp.player.CriteoVideoAdConfiguration
 import com.iab.omid.sampleapp.player.CriteoVideoAdLogCategory
 import com.iab.omid.sampleapp.player.CriteoVideoAdWrapper
@@ -188,7 +188,7 @@ class FeedVideoPlayerFragment : Fragment() {
                 title = "OMID Integration",
                 body = "The video player includes Open Measurement (OMID) tracking for viewability measurement, ensuring accurate ad metrics."
             ),
-            FeedItem.VideoAd(vastUrl = VAST_DEMO_URL),
+            FeedItem.VideoAd(vastUrl = arguments?.getString("vast_url") ?: VAST_DEMO_URL_SINGLE_MEDIA),
             FeedItem.Content(
                 title = "Customizable Experience",
                 body = "The video player can be customized with different configurations, such as auto-load behavior and mute settings."

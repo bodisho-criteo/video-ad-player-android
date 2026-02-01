@@ -8,7 +8,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
-import com.iab.omid.sampleapp.MainActivity.Companion.VAST_DEMO_URL
+import com.iab.omid.sampleapp.MainActivity.Companion.VAST_DEMO_URL_SINGLE_MEDIA
 import com.iab.omid.sampleapp.player.CriteoVideoAdConfiguration
 import com.iab.omid.sampleapp.player.CriteoVideoAdLogCategory
 import com.iab.omid.sampleapp.player.CriteoVideoAdWrapper
@@ -40,10 +40,12 @@ class BasicVideoPlayerFragment : Fragment() {
             startsMuted = true
         )
 
+        val vastUrl = arguments?.getString("vast_url") ?: VAST_DEMO_URL_SINGLE_MEDIA
+
         // 2. Create the wrapper using the factory method
         videoAdWrapper = CriteoVideoAdWrapper.fromUrl(
             context = requireContext(),
-            vastURL = VAST_DEMO_URL,
+            vastURL = vastUrl,
             configuration = config
         ).apply {
             layoutParams = FrameLayout.LayoutParams(
