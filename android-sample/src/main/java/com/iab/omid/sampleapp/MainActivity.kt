@@ -51,6 +51,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val VAST_DEMO_URL = "https://raw.githubusercontent.com/criteo/interview-ios/refs/heads/main/server/sample_vast_app.xml"
+        const val VAST_DEMO_URL = "https://raw.githubusercontent.com/criteo/vast-file-examples/refs/heads/main/server/sample_vast_app.xml"
     }
 }
