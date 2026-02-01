@@ -16,9 +16,10 @@ import com.iab.omid.library.criteo.adsession.VerificationScriptResource
 import com.iab.omid.library.criteo.adsession.media.InteractionType
 import com.iab.omid.library.criteo.adsession.media.MediaEvents
 import com.iab.omid.sampleapp.BuildConfig
-import com.iab.omid.sampleapp.util.AdSessionUtil
+import com.iab.omid.sampleapp.R
 import com.iab.omid.sampleapp.util.CriteoLogger
 import com.iab.omid.sampleapp.util.CriteoLogger.Category
+import java.io.IOException
 import java.net.URL
 
 /**
@@ -84,7 +85,7 @@ class OMIDSessionInteractor(
                 )
 
                 // Load OMID JS
-                val omidJs = AdSessionUtil.getOmidJs(context)
+                val omidJs = getOmidJs(context)
 
                 // Create verification script resources
                 val verificationScriptResources = try {
@@ -400,12 +401,26 @@ class OMIDSessionInteractor(
         fun isOMSDKActive(): Boolean = Omid.isActive()
 
         /**
-         * Simulates OMID SDK JavaScript download for demo purposes.
+         * For the simplicity of the demo project the OMID SDK javascript file is included in the
+         * application bundle.
+         *
          * In production, the JavaScript file should be hosted on a remote server.
+         *
+         * @param context - used to access the JS resource
+         * @return - the Omid JS resource as a string
          */
         @JvmStatic
-        fun prefetchOMIDSDK() {
-            CriteoLogger.info("Simulating OMID SDK Javascript download...", Category.OMID)
+        fun getOmidJs(context: Context): String {
+            val res = context.resources
+            try {
+                res.openRawResource(R.raw.omsdk_v1).use { inputStream ->
+                    val b = ByteArray(inputStream.available())
+                    val bytesRead = inputStream.read(b)
+                    return String(b, 0, bytesRead, charset("UTF-8"))
+                }
+            } catch (e: IOException) {
+                throw UnsupportedOperationException("Yikes, omid resource not found", e)
+            }
         }
     }
 }
