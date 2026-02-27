@@ -42,7 +42,11 @@ interface IOMIDSessionInteractor {
  *
  * Automatically chooses between the real OMIDSessionInteractor and
  * OMIDSessionInteractorStub based on OMID SDK availability.
+ *
+ * To enable OMID functionality refer to the official documentation
+ * https://developers.criteo.com/retailer-integration/update/docs/video-player-implementation-app-android
  */
+/**
 object OMIDSessionInteractorFactory {
 
     /**
@@ -77,4 +81,18 @@ object OMIDSessionInteractorFactory {
         // OMID SDK not available, will use stub
         false
     }
+}
+*/
+
+
+object OMIDSessionInteractorFactory {
+    fun create(
+        context: Context,
+        adView: View,
+        vendorKey: String,
+        verificationScriptURL: String,
+        verificationParameters: String
+    ): IOMIDSessionInteractor = OMIDSessionInteractorStub()
+
+    fun activateOMSDK(context: Context): Boolean = false
 }

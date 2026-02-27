@@ -1,5 +1,10 @@
 package com.iab.omid.sampleapp.manager.omid
+/**
+ To enable OMID functionality refer to the official documentation
+ https://developers.criteo.com/retailer-integration/update/docs/video-player-implementation-app-android
+ */
 
+/**
 import android.content.Context
 import android.view.View
 import com.iab.omid.library.criteo.Omid
@@ -424,3 +429,4 @@ class OMIDSessionInteractor(
         }
     }
 }
+*/
