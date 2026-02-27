@@ -1,28 +1,46 @@
-# Overview
+# Criteo Video Ad Player for Android
 
-Android sample app for showing video ad
+The Criteo Video Ad Player for Android is an open-source library that provides a ready-to-integrate video ad wrapper for rendering and tracking Onsite Video ads in native Android apps.
 
-Features implemented:
-* VAST parsing
-* Triggering VAST beacons
-* OMID verification script and verification parameters integrated
-* OMID events are sent
-* 50% ad viewable in viewport is checked, autopause when less than 50% of the video is seen
-* VAST click beacons, pause/unpause beacons, mute/unmute beacons
+## Features
 
+- **VAST Parsing** – Fetches VAST XML from a tag URL (or raw XML) and extracts media files, tracking beacons, click-through URLs, closed captions, and verification data via DOM/XPath.
+- **ExoPlayer Playback** – Plays the selected MP4 rendition using `androidx.media3`, with subtitle (WebVTT) support, mute/unmute, and looping.
+- **OMID SDK** – Creates ad sessions, fires ad/media lifecycle events (impression, quartiles, pause/resume, volume change, click), and registers UI controls as friendly obstructions.
+- **Beacon Tracking** – Fires impression, quartile, click, pause/resume, and mute/unmute beacons with retry logic (up to 3 attempts, exponential backoff).
+- **Viewability** – Quartile progress tracking (0 %, 25 %, 50 %, 75 %, 100 %) drives both VAST beacons and OMID media events.
 
+## Project Structure
 
-### Running this app
-- NOTE: First, manually enable storage permissions : Settings -> Apps -> OMSDKSampleApp -> Permissions -> Storage
-(The app may crash on recent Android versions without doing the above)
-- If using emulator, try a standard & recent emulator like Pixel / API 27
-  If you find that some cases don't work on emulator then you’ll need to disable any network security protection you may have enabled on your laptop (since the refApp runs a web server and if emulator is being used then your PC’s network security settings might block the refApp's web server / ports)
+```
+src/main/java/com/iab/omid/sampleapp/
+├── MainActivity.kt / AdApplication.kt       # App entry & navigation
+├── *Fragment.kt                             # Basic player, feed player, example selector
+├── player/
+│   ├── CriteoVideoPlayer.kt                # Core ExoPlayer wrapper + state tracking
+│   ├── CriteoVideoAdWrapper.kt             # High-level ad lifecycle (load → play → cleanup)
+│   └── tracking/Quartile.kt                # Progress quartile enum
+├── manager/
+│   ├── NetworkManager.kt                   # VAST fetch & parse orchestration
+│   ├── BeaconManager.kt                    # Beacon firing with retry
+│   ├── CreativeDownloader.kt               # Video/caption asset download
+│   ├── vast/                               # VastManager, VastAd, VastMediaFile
+│   └── omid/                               # OMIDSessionInteractor + factory + stub
+└── util/CriteoLogger.kt                    # Structured logging
+```
 
-### Testing notes
-Set up your device or emulator to proxy through Charles.
+## Requirements
 
-In Charles, look for urls containing: complianceomsdk.iabtechlab.com/sendmessage?
-All OMID events & event data will be mapped to the above 
+- Android SDK 24+ (target 30)
+- OMSDK AAR in `libs/` (not bundled)
 
-For native ad sessions, an external url is required to access `omid-validation-verification-script-v1`. This is specified in the 
-`build.config` `VERIFICATION_URL` field.
+## Build Configuration
+
+Key `buildConfigField` values in `build.gradle`:
+
+| Field | Purpose |
+|---|---|
+| `PARTNER_NAME` | OMID partner identifier |
+| `VENDOR_KEY` | Verification vendor key |
+| `VERIFICATION_URL` | JS verification script URL |
+| `VERIFICATION_PARAMETERS` | JSON beacon map passed to the verification script |
