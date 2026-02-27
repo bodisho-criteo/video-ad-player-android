@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">OMSDKSampleApp</string>
+    <string name="title_ad_detail">ad Detail</string>
+    <string name="waiting">Waiting for ad fetch …</string>
+</resources>

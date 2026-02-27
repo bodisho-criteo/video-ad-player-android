@@ -1,0 +1,596 @@
+package com.iab.omid.sampleapp.player
+
+import android.content.Context
+import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.net.Uri
+import android.util.AttributeSet
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.LinearLayout
+import androidx.annotation.ColorInt
+import androidx.annotation.DrawableRes
+import androidx.annotation.OptIn
+import androidx.core.net.toUri
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaItem.SubtitleConfiguration
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.PlayerView
+import com.iab.omid.sampleapp.manager.BeaconManager
+import com.iab.omid.sampleapp.manager.omid.IOMIDSessionInteractor
+import com.iab.omid.sampleapp.manager.omid.OMIDSessionInteractorFactory
+import com.iab.omid.sampleapp.manager.vast.VastAd
+import com.iab.omid.sampleapp.player.tracking.Quartile
+import com.iab.omid.sampleapp.util.CriteoLogger
+import com.iab.omid.sampleapp.util.CriteoLogger.Category
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+private const val PLAYER_MUTE = 0f
+private const val PLAYER_UNMUTE = 1f
+private const val PROGRESS_INTERVAL_MS = 100L // Parity with legacy implementation
+
+/**
+ * Core reusable video player view.
+ */
+class CriteoVideoPlayer @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : FrameLayout(context, attrs, defStyleAttr), Player.Listener {
+
+    data class PlayerState(
+        val playbackState: PlaybackState = PlaybackState.IDLE,
+        val isMuted: Boolean = true,
+        val quartile: Quartile = Quartile.UNKNOWN
+    )
+
+    enum class PlaybackState {
+        IDLE,
+        LOADING,
+        PLAYING,
+        PAUSED,
+        FINISHED,
+        ERROR;
+    }
+
+    private val _state = MutableStateFlow<PlayerState>(PlayerState())
+    val state: StateFlow<PlayerState> = _state.asStateFlow()
+
+    val currentPositionMs: Long
+        get() = player?.currentPosition ?: 0L
+
+    val durationMs: Long
+        get() = player?.duration ?: 0L
+
+    private val quartileTrackingScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    private val playerView: PlayerView = PlayerView(context).apply {
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT)
+    }
+
+    private val minButtonSizePx = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP,
+        32f,
+        context.resources.displayMetrics
+    ).toInt()
+
+    private val closedCaptionButton = Button(context).apply {
+        text = "CC"
+        setTextColor(closedCaptionButtonTextColor)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        setBackgroundColor(Color.LTGRAY)
+
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            minHeight = minButtonSizePx
+            minimumHeight = minButtonSizePx
+            minWidth = minButtonSizePx
+            minimumWidth = minButtonSizePx
+
+            val padding = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                12f,
+                context.resources.displayMetrics
+            ).toInt()
+            topMargin = padding
+            marginStart = padding
+
+            gravity = Gravity.TOP or Gravity.START
+        }
+
+        setOnClickListener { toggleClosedCaptions() }
+    }
+
+    private val closedCaptionButtonTextColor: Int @ColorInt
+        get() = if (isClosedCaptionEnabled) Color.WHITE else Color.DKGRAY
+
+    private val controlsContainer = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutParams = LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            val padding = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                12f,
+                context.resources.displayMetrics
+            ).toInt()
+            bottomMargin = padding
+            marginStart = padding
+            gravity = Gravity.BOTTOM or Gravity.START
+        }
+    }
+
+    private val playPauseButton = ImageButton(context).apply {
+        setImageResource(playPauseButtonIconDrawableRes)
+        imageTintList = ColorStateList.valueOf(Color.DKGRAY)
+        setBackgroundColor(Color.LTGRAY)
+
+        layoutParams = LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            height = minButtonSizePx
+            minimumHeight = minButtonSizePx
+            width = minButtonSizePx
+            minimumWidth = minButtonSizePx
+        }
+
+        setOnClickListener { togglePlayPause(fromUserInteraction = true) }
+    }
+
+    private val playPauseButtonIconDrawableRes: Int @DrawableRes
+        get() = if (state.value.playbackState == PlaybackState.PLAYING) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+
+    private val muteButton = ImageButton(context).apply {
+        setImageResource(muteButtonIconDrawableRes)
+        imageTintList = ColorStateList.valueOf(Color.DKGRAY)
+        setBackgroundColor(Color.LTGRAY)
+
+        layoutParams = LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            height = minButtonSizePx
+            minimumHeight = minButtonSizePx
+            width = minButtonSizePx
+            minimumWidth = minButtonSizePx
+
+            marginStart = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                12f,
+                context.resources.displayMetrics
+            ).toInt()
+        }
+
+        setOnClickListener { toggleMute() }
+    }
+
+    private val muteButtonIconDrawableRes: Int @DrawableRes
+        get() = if (state.value.isMuted) android.R.drawable.ic_lock_silent_mode else android.R.drawable.ic_lock_silent_mode_off
+
+    private var player: ExoPlayer? = null
+    private var beaconManager: BeaconManager? = null
+    private var vastAd: VastAd? = null
+    private var omidSessionInteractor: IOMIDSessionInteractor? = null
+
+    private var quartileTrackingStarted = false
+    private var isClosedCaptionEnabled = false
+
+    init {
+        addView(playerView)
+        addView(closedCaptionButton)
+        addView(controlsContainer)
+
+        controlsContainer.addView(playPauseButton)
+        controlsContainer.addView(muteButton)
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        pause(fromUserInteraction = false)
+    }
+
+    // PLAYER LISTENER CALLBACKS
+    override fun onPlaybackStateChanged(playbackState: Int) {
+        super.onPlaybackStateChanged(playbackState)
+
+        val p = player ?: return
+
+        // Start quartile tracking when ready (if not already started or complete)
+        if (playbackState == Player.STATE_READY && !quartileTrackingStarted && state.value.quartile != Quartile.COMPLETE) {
+            startQuartileTrackingLoop()
+        }
+
+        val newPlaybackState = when (playbackState) {
+            Player.STATE_READY -> if (p.isPlaying) PlaybackState.PLAYING else PlaybackState.PAUSED
+            Player.STATE_BUFFERING -> PlaybackState.LOADING
+            Player.STATE_ENDED -> PlaybackState.FINISHED
+            else -> PlaybackState.IDLE
+        }
+
+        val shouldFireCompleteBeacon = playbackState == Player.STATE_ENDED && state.value.quartile != Quartile.COMPLETE
+
+        _state.update { currentState ->
+            currentState.copy(
+                playbackState = newPlaybackState,
+                quartile = if (shouldFireCompleteBeacon) Quartile.COMPLETE else currentState.quartile
+            )
+        }
+
+        if (shouldFireCompleteBeacon) {
+            stopQuartileTrackingAndFireComplete()
+        }
+        playPauseButton.setImageResource(playPauseButtonIconDrawableRes)
+    }
+
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        super.onIsPlayingChanged(isPlaying)
+
+        _state.update { currentState ->
+            currentState.copy(
+                playbackState = if (isPlaying) {
+                    PlaybackState.PLAYING
+                } else {
+                    // Only switch to Paused if not buffering/finished
+                    when (currentState.playbackState) {
+                        PlaybackState.LOADING, PlaybackState.FINISHED -> currentState.playbackState
+                        else -> PlaybackState.PAUSED
+                    }
+                }
+            )
+        }
+        playPauseButton.setImageResource(playPauseButtonIconDrawableRes)
+    }
+
+    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        super.onMediaItemTransition(mediaItem, reason)
+
+        // This reason only triggers when playback reaches the end and loops
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+            // Only fire if we haven't already marked it as complete
+            if (state.value.quartile != Quartile.COMPLETE) {
+                _state.update { currentState -> currentState.copy(quartile = Quartile.COMPLETE) }
+                stopQuartileTrackingAndFireComplete()
+            }
+        }
+    }
+
+    override fun onVolumeChanged(volume: Float) {
+        super.onVolumeChanged(volume)
+        _state.update { currentState -> currentState.copy(isMuted = volume == PLAYER_MUTE) }
+        muteButton.setImageResource(muteButtonIconDrawableRes)
+    }
+
+    override fun onPlayerError(error: PlaybackException) {
+        _state.update { currentState -> currentState.copy(playbackState = PlaybackState.ERROR) }
+    }
+
+    // PUBLIC CONFIGURATION API
+    fun setBeaconManager(beaconManager: BeaconManager) {
+        this.beaconManager = beaconManager
+    }
+
+    fun setVastAd(vastAd: VastAd) {
+        this.vastAd = vastAd
+        initializeOmidSession(vastAd)
+    }
+
+    // PUBLIC PLAYER API
+    @OptIn(UnstableApi::class)
+    fun load(
+        videoUri: Uri,
+        subtitleUri: Uri? = null,
+        playWhenReady: Boolean = true,
+        startsMuted: Boolean = true
+    ) {
+        // Release the player and reset state if it was already initialized
+        if (player != null) {
+            releasePlayer()
+        }
+
+        isClosedCaptionEnabled = false
+        closedCaptionButton.visibility = if (subtitleUri != null) VISIBLE else GONE
+
+        // Create the MediaItem to play
+        val mediaItem = MediaItem.Builder()
+            .setUri(videoUri)
+            .also { builder ->
+                subtitleUri?.let {
+                    // Subtitle configuration for external WebVTT subtitles
+                    val subtitleConfig = SubtitleConfiguration.Builder(subtitleUri)
+                        .setMimeType(MimeTypes.TEXT_VTT) // The MIME type for WebVTT subtitles
+                        .setLanguage("en") // Optional: Specify the language
+                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT) // Optional: Set flags like default
+                        .build()
+
+                    builder.setSubtitleConfigurations(listOf(subtitleConfig))
+
+                    isClosedCaptionEnabled = true
+
+                    // Update button appearance
+                    closedCaptionButton.apply {
+                        isSelected = isClosedCaptionEnabled
+                        setTextColor(closedCaptionButtonTextColor)
+                    }
+                }
+            }
+            .build()
+
+        // Create exoplayer with track selector for content and ads
+        val trackSelector = DefaultTrackSelector(context).also { selector ->
+            val parameters = TrackSelectionParameters.Builder(context)
+                .setPreferredTextLanguage("fr") // Set preferred language, e.g., English
+                .build()
+            selector.setParameters(parameters)
+        }
+
+        player = ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .build()
+            .also { exoPlayer ->
+                // Configure the player
+                playerView.player = exoPlayer
+                playerView.useController = false // Disable default player controls (prevents seeking)
+                playerView.setOnClickListener { handleVideoClick() }
+
+                exoPlayer.addListener(this)
+                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.volume = if (startsMuted) PLAYER_MUTE else PLAYER_UNMUTE
+                exoPlayer.repeatMode = Player.REPEAT_MODE_ONE
+                exoPlayer.playWhenReady = playWhenReady
+                exoPlayer.prepare()
+
+                _state.update { currentState ->
+                    currentState.copy(
+                        playbackState = PlaybackState.LOADING,
+                        isMuted = exoPlayer.volume == PLAYER_MUTE,
+                        quartile = Quartile.from(exoPlayer.currentPosition, exoPlayer.duration)
+                    )
+                }
+            }
+
+        omidSessionInteractor?.fireAdLoaded()
+        fireImpressionEvents()
+    }
+
+    fun release() {
+        releaseSession()
+        releasePlayer()
+    }
+
+    fun play(fromUserInteraction: Boolean) {
+        player?.play()
+
+        if (state.value.quartile != Quartile.UNKNOWN) {
+            omidSessionInteractor?.fireResume()
+
+            // Fire resume beacon only for user interactions
+            if (fromUserInteraction) {
+                fireBeaconForAction("resume")
+            }
+        }
+    }
+
+    fun pause(fromUserInteraction: Boolean) {
+        if (player?.isPlaying != true) return
+        player?.pause()
+
+        omidSessionInteractor?.firePause()
+
+        // Fire pause beacon only for user interactions
+        if (fromUserInteraction) {
+            fireBeaconForAction("pause")
+        }
+    }
+
+    fun togglePlayPause(fromUserInteraction: Boolean) {
+        player?.let {
+            if (it.isPlaying) {
+                pause(fromUserInteraction)
+            } else {
+                play(fromUserInteraction)
+            }
+        }
+    }
+
+    fun toggleMute() {
+        player?.let {
+            it.volume = if (it.volume == PLAYER_MUTE) PLAYER_UNMUTE else PLAYER_MUTE
+
+            omidSessionInteractor?.fireVolumeChange(it.volume)
+
+            // Fire mute/unmute beacon
+            fireBeaconForAction(if (it.volume == PLAYER_MUTE) "mute" else "unmute")
+
+            CriteoLogger.debug("Video mute toggled: ${it.volume == PLAYER_MUTE}", Category.VIDEO)
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        player?.seekTo(positionMs)
+    }
+
+    // PRIVATE HELPERS
+    private fun initializeOmidSession(ad: VastAd) {
+        // Release any existing session before starting a new one
+        if (omidSessionInteractor != null) {
+            releaseSession()
+        }
+
+        // Get OMID parameters from VAST ad
+        val vendorKey = ad.vendorKey.orEmpty()
+        val verificationScriptUrl = ad.verificationScriptUrl?.toString().orEmpty()
+        val verificationParameters = ad.verificationParameters.orEmpty()
+
+        // Create OMID session interactor and start session
+        omidSessionInteractor = OMIDSessionInteractorFactory.create(
+            context = context.applicationContext,
+            adView = this,
+            vendorKey = vendorKey,
+            verificationScriptURL = verificationScriptUrl,
+            verificationParameters = verificationParameters
+        ).also { interactor ->
+            // Register friendly obstructions
+            interactor.addMediaControlsObstruction(playPauseButton)
+            interactor.addMediaControlsObstruction(muteButton)
+            interactor.addMediaControlsObstruction(closedCaptionButton)
+
+            interactor.startSession()
+        }
+    }
+
+    private fun releaseSession() {
+        omidSessionInteractor?.stopSession()
+        omidSessionInteractor = null
+    }
+
+    private fun releasePlayer() {
+        player?.removeListener(this)
+        player?.release()
+        player = null
+
+        quartileTrackingStarted = false
+        quartileTrackingScope.cancel()
+
+        _state.update { currentState ->
+            currentState.copy(
+                playbackState = PlaybackState.IDLE,
+                quartile = Quartile.UNKNOWN
+            )
+        }
+    }
+
+    private fun startQuartileTrackingLoop() {
+        quartileTrackingStarted = true
+        quartileTrackingScope.launch {
+            while (isActive) {
+                val duration = player?.duration ?: 0L
+                val currentPosition = player?.currentPosition
+
+                if (duration != 0L && currentPosition != null) {
+                    val lastQuartile: Quartile = state.value.quartile
+                    val newQuartile: Quartile = Quartile.from(currentPosition, duration)
+
+                    // Don't send old quartile stats that we have either already sent, or passed.
+                    if (newQuartile.ordinal > lastQuartile.ordinal) {
+                        _state.update { currentState -> currentState.copy(quartile = newQuartile) }
+                        fireQuartileEvent(newQuartile)
+                    }
+                }
+
+                delay(PROGRESS_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun stopQuartileTrackingAndFireComplete() {
+        quartileTrackingScope.cancel()
+        quartileTrackingStarted = false
+        fireQuartileEvent(Quartile.COMPLETE)
+    }
+
+    private fun handleVideoClick() {
+        omidSessionInteractor?.fireClickInteraction()
+
+        vastAd?.let { ad ->
+            if (ad.clickThroughUrl != null) {
+                // Fire click tracking beacons
+                beaconManager?.fireClickTrackingBeacons(ad = ad)
+
+                CriteoLogger.debug("Opening click-through URL: ${ad.clickThroughUrl}", Category.VIDEO)
+
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, ad.clickThroughUrl.toString().toUri())
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    CriteoLogger.warning("Failed to open click-through URL: ${e.localizedMessage}", Category.VIDEO)
+                }
+            } else {
+                // No click-through URL available, use tap as pause/resume toggle
+                togglePlayPause(fromUserInteraction = true)
+                CriteoLogger.debug("No click-through URL found, toggling play/pause instead", Category.VIDEO)
+            }
+        }
+    }
+
+    private fun fireImpressionEvents() {
+        omidSessionInteractor?.fireImpression()
+
+        vastAd?.let { ad -> beaconManager?.fireImpressionBeacons(ad = ad) }
+
+        CriteoLogger.info("Impression events fired", category = Category.VIDEO)
+    }
+
+    private fun fireQuartileEvent(quartile: Quartile) {
+        // Map quartile to OMID call
+        when (quartile) {
+            Quartile.START -> omidSessionInteractor?.fireStart(durationMs, if (state.value.isMuted) PLAYER_MUTE else PLAYER_UNMUTE)
+            Quartile.FIRST -> omidSessionInteractor?.fireFirstQuartile()
+            Quartile.SECOND -> omidSessionInteractor?.fireMidpoint()
+            Quartile.THIRD -> omidSessionInteractor?.fireThirdQuartile()
+            Quartile.COMPLETE -> omidSessionInteractor?.fireComplete()
+            else -> return
+        }
+
+        val actionType = when (quartile) {
+            Quartile.START -> "start"
+            Quartile.FIRST -> "firstQuartile"
+            Quartile.SECOND -> "midpoint"
+            Quartile.THIRD -> "thirdQuartile"
+            Quartile.COMPLETE -> "complete"
+            else -> return
+        }
+
+        val url = vastAd?.trackingEvents[actionType]
+        if (url != null) {
+            beaconManager?.fireBeacon(url = url, type = actionType)
+            CriteoLogger.info("Fired quartile event: $actionType", category = Category.VIDEO)
+        } else {
+            CriteoLogger.debug("No beacon URL found for quartile event: $actionType", category = Category.BEACON)
+        }
+    }
+
+    private fun fireBeaconForAction(actionType: String) {
+        val url = vastAd?.trackingEvents[actionType]
+        if (url != null) {
+            beaconManager?.fireBeacon(url = url, type = actionType)
+        } else {
+            CriteoLogger.debug("No beacon URL found for action type: $actionType", category = Category.BEACON)
+        }
+    }
+
+    private fun toggleClosedCaptions() {
+        isClosedCaptionEnabled = !isClosedCaptionEnabled
+
+        // Update button appearance
+        closedCaptionButton.apply {
+            isSelected = isClosedCaptionEnabled
+            setTextColor(closedCaptionButtonTextColor)
+        }
+
+        // Toggle subtitle track
+        player?.let { exoPlayer ->
+            // Access the track selector if available
+            val currentParams = exoPlayer.trackSelectionParameters
+            exoPlayer.trackSelectionParameters = currentParams.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !isClosedCaptionEnabled)
+                .build()
+        }
+
+        CriteoLogger.debug("Closed captions toggled: $isClosedCaptionEnabled", Category.VIDEO)
+    }
+}
