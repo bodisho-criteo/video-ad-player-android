@@ -16,6 +16,7 @@ import com.iab.omid.sampleapp.player.CriteoVideoAdWrapper
 class BasicVideoPlayerFragment : Fragment() {
 
     private var videoAdWrapper: CriteoVideoAdWrapper? = null
+    private var shouldAutoResumePlayback = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -91,11 +92,14 @@ class BasicVideoPlayerFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        videoAdWrapper?.play()
+        if (shouldAutoResumePlayback) {
+            videoAdWrapper?.play()
+        }
     }
 
     override fun onPause() {
         super.onPause()
+        shouldAutoResumePlayback = videoAdWrapper?.isPlaying ?: false
         videoAdWrapper?.pause()
     }
 

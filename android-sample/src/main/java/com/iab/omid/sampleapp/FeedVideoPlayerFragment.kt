@@ -264,6 +264,7 @@ class FeedVideoPlayerFragment : Fragment() {
         override fun getItemCount(): Int = items.size
 
         fun pauseAllVideos() {
+            videoAdViewHolders.forEach { it.savePlaybackState() }
             videoAdWrappers.values.forEach { it.pause() }
             videoAdViewHolders.forEach { it.onVisibilityChanged(false) }
         }
@@ -290,6 +291,7 @@ class FeedVideoPlayerFragment : Fragment() {
 
             private var videoAdWrapper: CriteoVideoAdWrapper? = null
             private var isVideoVisible = false
+            private var shouldAutoResumePlayback = true
             private var currentVastUrl: String? = null
 
             fun bind(item: FeedItem.VideoAd) {
@@ -350,8 +352,14 @@ class FeedVideoPlayerFragment : Fragment() {
 
                 isVideoVisible = isVisible
 
-                if (isVisible) videoAdWrapper?.play() else videoAdWrapper?.pause()
-                Log.d(TAG, "Auto ${if (isVisible) "play" else "pause"} triggered")
+                if (isVisible && shouldAutoResumePlayback || !isVisible) {
+                    if (isVisible) videoAdWrapper?.play() else videoAdWrapper?.pause()
+                    Log.d(TAG, "Auto ${if (isVisible) "play" else "pause"} triggered")
+                }
+            }
+
+            fun savePlaybackState() {
+                shouldAutoResumePlayback = videoAdWrapper?.isPlaying ?: false
             }
 
             fun pause() {
